@@ -14,8 +14,6 @@
 
 // TODO: reference additional headers your program requires here
 #include <Psapi.h>
-#include <future>
-#include <vector>
 
 #include "mhook-lib/mhook.h"
 

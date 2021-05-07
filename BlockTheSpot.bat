@@ -75,9 +75,20 @@ try {
 try {
   $webClient.DownloadFile(
     # Remote file URL
-    'https://github.com/mrpond/BlockTheSpot/files/5767943/zlink.zip',
+    'https://github.com/mrpond/BlockTheSpot/files/5969916/zlink.zip',
     # Local file path
     "$PWD\zlink.zip"
+  )
+} catch {
+  Write-Output $_
+  Sleep
+}
+try {
+  $webClient.DownloadFile(
+    # Remote file URL
+    'https://github.com/mrpond/BlockTheSpot/files/6234124/xpui.zip',
+    # Local file path
+    "$PWD\xpui.zip"
   )
 } catch {
   Write-Output $_
@@ -87,6 +98,8 @@ Expand-Archive -Force -LiteralPath "$PWD\chrome_elf.zip" -DestinationPath $PWD
 Remove-Item -LiteralPath "$PWD\chrome_elf.zip"
 Expand-Archive -Force -LiteralPath "$PWD\zlink.zip" -DestinationPath $PWD
 Remove-Item -LiteralPath "$PWD\zlink.zip"
+Expand-Archive -Force -LiteralPath "$PWD\xpui.zip" -DestinationPath $PWD
+Remove-Item -LiteralPath "$PWD\xpui.zip"
 
 $spotifyInstalled = (Test-Path -LiteralPath $SpotifyExecutable)
 if (-not $spotifyInstalled) {
@@ -125,6 +138,7 @@ if (!(test-path $SpotifyDirectory/chrome_elf.dll.bak)){
 Write-Host 'Patching Spotify...'
 $patchFiles = "$PWD\chrome_elf.dll", "$PWD\config.ini"
 $remup = "$PWD\zlink.spa"
+$uipat = "$PWD\xpui.spa"
 Copy-Item -LiteralPath $patchFiles -Destination "$SpotifyDirectory"
 
 $ch = Read-Host -Prompt "Optional - Remove Upgrade Button. (Y/N) "
@@ -136,6 +150,18 @@ if ($ch -eq 'y'){
 Won't remove Upgrade Button.
 '@`n
 }
+
+$ch = Read-Host -Prompt "Change Alpha UI back to Old UI. (BTS only supports Old UI). (Y/N) "
+if ($ch -eq 'y'){
+    move $SpotifyApps\xpui.spa $SpotifyApps\xpui.spa.bak >$null 2>&1
+    Copy-Item -LiteralPath $uipat -Destination "$SpotifyApps"
+} else{
+     Write-Host @'
+UI isn't changed.
+'@`n
+}
+
+
 $tempDirectory = $PWD
 Pop-Location
 
