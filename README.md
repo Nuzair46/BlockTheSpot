@@ -11,8 +11,8 @@
     <h4 align="center">A multi-purpose adblocker and skip-bypass for the <strong>Windows</strong> Spotify desktop application.</h4>
     <h5 align="center">Please support Spotify by purchasing premium</h5>
     <p align="center">
-        <strong>Last updated:</strong> 21 April 2021<br>
-        <strong>Last tested version:</strong> 1.1.63.566.g62675f37-a
+        <strong>Last updated:</strong> 29 October 2021<br>
+        <strong>Last tested version:</strong> 1.1.74.631.g0b24d9ad
     </p> 
 </center>
 
@@ -42,8 +42,9 @@ Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/mrpond/Blo
 or
 
 1. Browse to your Spotify installation folder `%APPDATA%\Spotify`
+2. Rename `chrome_elf.dll` to `chrome_elf_bak.dll`
 2. Download `chrome_elf.zip` from [releases](https://github.com/mrpond/BlockTheSpot/releases)
-3. Unzip and replace `chrome_elf.dll` and `config.ini` 
+3. Unzip `chrome_elf.dll` and `config.ini` 
 
 ### Uninstall:
 * Just run uninstall.bat
@@ -51,16 +52,12 @@ or
 * Reinstall Spotify 
 
 ### Known Issues:  
-* You may face issue [#150](https://github.com/mrpond/BlockTheSpot/issues/150).    
+* You may face issue [#150](https://github.com/mrpond/BlockTheSpot/issues/150). Can be fixed by enabling the experimental feature when using `BlockTheSpot.bat`.    
+* We support last 2 version of Spotify (latest + previous) only. Please check it before opening an issue.
 
 ### Additional Notes:  
-* BlockTheSpot might only works as expected with the last tested version. Please check it before opening an issue.  
+* Remove "Upgrade" Button [#83](https://github.com/mrpond/BlockTheSpot/issues/83) and Remove "Ad Placeholder" [#150](https://github.com/mrpond/BlockTheSpot/issues/150) only works when you use any of the auto installation methods and press `y` when prompted.  
 * "chrome_elf.dll" gets replaced by the Spotify installer each time it updates, hence why you'll probably need to apply the patch again when it happens
 * [Spicetify](https://github.com/khanhas/spicetify-cli) users will need to reapply BlockTheSpot after applying a Spicetify patches.
-* The ad banner may appear if your network uses [Web Proxy Auto-Discovery Protocol](https://en.wikipedia.org/wiki/Web_Proxy_Auto-Discovery_Protocol)
-    * Setting `Skip_wpad = 1` in config.ini may help
-* For Spotify Premium users, setting `Block_BannerOnly = 1` will only block the banner at home
 * If the automatic install/uninstall scripts do not work, please contact [Nuzair46](https://github.com/Nuzair46)
 * For more support and discussions, join our [Discord server](https://discord.gg/p43cusgUPm) 
-
-

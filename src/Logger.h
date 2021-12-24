@@ -1,38 +1,49 @@
 #pragma once
-#include <fstream>
-#include <string>
-#include "Config.h"
+#include "stdafx.h"
 
 class Logger {
+private:
+	auto current_datetime ()
+	{
+		static struct tm newtime;
+		static __time64_t long_time;
+		_time64 (&long_time);
+		localtime_s (&newtime, &long_time);
+		return std::put_time (&newtime, "%d-%b-%Y %H:%M:%S");
+	}
+
+	std::ofstream log_stream;
+	const bool read (std::string_view app, std::string_view key, int def_value = 0) {
+		if (1 == GetPrivateProfileInt (app.data (), key.data (), def_value, "./config.ini")) {
+			return true;
+		}
+		return false;
+	}
+
 
 public:
-	Logger (Config* config) {
-		
-		m_active = config->getConfig ("Log");
-		if (m_active) {
-			m_log.open ("blockthespot_log.txt", std::ios::out | std::ios::app);
+	Logger () {
+		if (read ("Config", "Log")) {
+			log_stream.open ("blockthespot_log.txt", std::ios::out | std::ios::app);
 			//m_log << "BlockTheSpot - Build date: " << __TIMESTAMP__ << std::endl;
 		}
 	}
 
 	~Logger () {
-		if (m_active) {
-			m_log.flush ();
-			m_log.close ();
+		if (log_stream.is_open()) {
+			log_stream.flush ();
+			log_stream.close ();
 		}
 	}
 
-	bool is_active () {
-		return m_active;
-	}
-
 	void Log (std::string_view log) {
-		if (m_active)
-			m_log << log << '\n';
+		if (log_stream.is_open ()) {
+			std::stringstream message;
+			message << "LOG | " << current_datetime () << " - " << log;
+			log_stream << message.str() << std::endl;
+		}
+			
 	}
 
-private:
-	bool m_active = false;
-	std::ofstream m_log;
 
 };

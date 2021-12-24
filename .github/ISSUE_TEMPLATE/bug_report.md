@@ -1,4 +1,12 @@
-## Bug Report
+---
+name: Bug report
+about: Make sure you have completed everything in the following checklist.
+title: ''
+labels: ''
+assignees: ''
+
+---
+
 Make sure you have completed everything in the following checklist.
 
  - [ ] You are using the Spotify `last tested version` mentioned in the [README](https://github.com/mrpond/BlockTheSpot/blob/master/README.md).

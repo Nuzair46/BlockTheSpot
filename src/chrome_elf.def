@@ -1,7 +1,6 @@
 LIBRARY	"chrome_elf"
 
 EXPORTS
-AddDllToBlacklist
 ClearReportsBetween_ExportThunk
 CrashForException_ExportThunk
 DisableHook
@@ -17,7 +16,7 @@ GetInstallDetailsPayload
 GetUniqueBlockedModulesCount
 GetUserDataDirectoryThunk
 InjectDumpForHungInput_ExportThunk
-IsBlacklistInitialized
+IsBrowserProcess
 IsCrashReportingEnabledImpl
 IsThirdPartyInitialized
 RegisterLogNotification
@@ -27,4 +26,3 @@ SetMetricsClientId
 SetUploadConsent_ExportThunk
 SignalChromeElf
 SignalInitializeCrashReporting
-SuccessfullyBlocked
