@@ -27,6 +27,10 @@ This project is for the standard [Spotify desktop app](https://www.spotify.com/d
 
 ## Fresh install
 
+- Use [BlockTheSpot-Installer](https://github.com/Nuzair46/BlockTheSpot-Installer/releases) for auto installing. Use the recommended Spotify version.
+
+or
+
 1. Open `%APPDATA%\Spotify`.
 2. Rename the original `chrome_elf.dll` to `chrome_elf_required.dll`.
 3. Download the latest release assets: `chrome_elf.dll`, `blockthespot.dll`, and `config.ini`.
@@ -34,6 +38,8 @@ This project is for the standard [Spotify desktop app](https://www.spotify.com/d
 5. Start Spotify.
 
 ## Update after Spotify updates
+
+- Use [BlockTheSpot-Installer](https://github.com/Nuzair46/BlockTheSpot-Installer/releases) for auto installing. Use the recommended Spotify version. Some times latest version may not be supported.
 
 1. Close Spotify completely.
 2. Open `%APPDATA%\Spotify`.
