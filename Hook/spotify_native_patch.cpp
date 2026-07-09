@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "spotify_native_patch.h"
+#include "config.h"
 #include "loader.h"
 #include "pattern.h"
 #include "memory.h"
@@ -27,7 +28,7 @@ static inline bool is_spotify_native_patch_enabled(const char *section) noexcept
 			section,
 			"Enable",
 			0,
-			CONFIG_FILEA);
+			get_native_patch_config_file());
 	return 0 != result;
 }
 
@@ -43,7 +44,7 @@ static inline void apply_spotify_native_patch(HMODULE spotify_dll_handle, const 
 			"",
 			signature_buffer,
 			sizeof(signature_buffer),
-			CONFIG_FILEA);
+			get_native_patch_config_file());
 
 	if (0 == signature_raw_length)
 	{
@@ -75,7 +76,7 @@ static inline void apply_spotify_native_patch(HMODULE spotify_dll_handle, const 
 			section,
 			"Offset",
 			0,
-			CONFIG_FILEA);
+			get_native_patch_config_file());
 
 	const auto value_raw_length = GetPrivateProfileStringA(
 			section,
@@ -83,7 +84,7 @@ static inline void apply_spotify_native_patch(HMODULE spotify_dll_handle, const 
 			"",
 			value_buffer,
 			sizeof(value_buffer),
-			CONFIG_FILEA);
+			get_native_patch_config_file());
 
 	if (0 == value_raw_length)
 	{
@@ -188,7 +189,7 @@ static inline void apply_configured_spotify_native_patches(HMODULE spotify_dll_h
 				"",
 				patch_section,
 				sizeof(patch_section),
-				CONFIG_FILEA);
+				get_native_patch_config_file());
 
 		if (0 == len)
 		{

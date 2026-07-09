@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "cef_zip_reader_hook.h"
+#include "config.h"
 #include "loader.h"
 #include "funct_pointer.h"
 #include "log_thread.h"
@@ -159,7 +160,7 @@ static inline cef_zip_reader_create_t cef_zip_reader_create_impl = nullptr;
 using cef_zip_reader_read_file_t = int(CALLBACK*)(void* self, void* buffer, size_t bufferSize);
 static cef_zip_reader_read_file_t cef_zip_reader_read_file_orig = nullptr;
 
-// compare file name in spa vs config.ini
+// compare file name in spa vs frontend patch config
 static bool need_patch(const char* in_file) noexcept {
 	for (size_t i = 0; i < cef_buffer_modify_count; ++i) {
 		const char* target = cef_buffer_list[i];
@@ -194,7 +195,7 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 			"",
 			temp_buffer,
 			SHARED_BUFFER_SIZE,
-			CONFIG_FILEA
+			get_frontend_patch_config_file()
 		);
 
 		if (0 == signature_raw_length) {
@@ -229,7 +230,7 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 			patch_name,
 			shared_buffer,
 			0,
-			CONFIG_FILEA
+			get_frontend_patch_config_file()
 		);
 
 		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Value_%zu", display_idx);
@@ -239,7 +240,7 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 			"",
 			temp_buffer,
 			SHARED_BUFFER_SIZE,
-			CONFIG_FILEA
+			get_frontend_patch_config_file()
 		);
 
 		if (0 == value_raw_length) {
@@ -353,7 +354,7 @@ static void patch_file(const char* file_name, void* buffer, size_t bufferSize) n
 			"",
 			patch_name,
 			MAX_URL_LEN,
-			CONFIG_FILEA
+			get_frontend_patch_config_file()
 		);
 
 		if (0 == len) {
@@ -518,7 +519,7 @@ static inline void load_cef_reader_config()
 			"",
 			cef_buffer_list[i],
 			MAX_URL_LEN,
-			CONFIG_FILEA
+			get_frontend_patch_config_file()
 		);
 		if (0 == len) {
 			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Load buffer modify %zu: fail, stop processing", display_idx);
@@ -540,7 +541,7 @@ static inline bool is_cef_reader_hook() noexcept
 		"Buffer_modify",
 		"Enable",
 		0,
-		CONFIG_FILEA
+		get_frontend_patch_config_file()
 	);
 	return 0 != is_enable;
 }

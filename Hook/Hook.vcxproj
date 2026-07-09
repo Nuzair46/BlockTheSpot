@@ -179,6 +179,7 @@
   <ItemGroup>
     <ClInclude Include="cef_url_hook.h" />
     <ClInclude Include="cef_zip_reader_hook.h" />
+    <ClInclude Include="config.h" />
     <ClInclude Include="css_cosmetic.h" />
     <ClInclude Include="spotify_native_patch.h" />
     <ClInclude Include="framework.h" />

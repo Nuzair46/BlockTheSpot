@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "css_cosmetic.h"
+#include "config.h"
 #include "loader.h"
 #include "log_thread.h"
 #include "pattern.h"
@@ -12,7 +13,7 @@ static inline bool is_homepage_vbar_hide() noexcept
 		"Homepage_vbar",
 		"Enable",
 		0,
-		CONFIG_FILEA
+		get_frontend_patch_config_file()
 	);
 	return 0 != result;
 }
@@ -37,7 +38,7 @@ static inline void do_hide_vbar(const char* file_name, void* buffer, size_t buff
 		"",
 		vbar_buffer,
 		sizeof(vbar_buffer),
-		CONFIG_FILEA
+		get_frontend_patch_config_file()
 	);
 
 	if (0 == signature_raw_length) {
@@ -67,7 +68,7 @@ static inline void do_hide_vbar(const char* file_name, void* buffer, size_t buff
 		"Homepage_vbar",
 		"Offset",
 		0,
-		CONFIG_FILEA
+		get_frontend_patch_config_file()
 	);
 
 	const auto value_raw_length = GetPrivateProfileStringA(
@@ -76,7 +77,7 @@ static inline void do_hide_vbar(const char* file_name, void* buffer, size_t buff
 		"",
 		vbar_buffer,
 		sizeof(vbar_buffer),
-		CONFIG_FILEA
+		get_frontend_patch_config_file()
 	);
 
 	if (0 == value_raw_length) {

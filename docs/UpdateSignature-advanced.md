@@ -1,8 +1,8 @@
 # BlockTheSpot Signature Patching Tutorial
 
 This document explains how BlockTheSpot patches Spotify right now. It is a
-practical workflow for adding or updating `config.ini` signatures, verifying
-that they match, and debugging failures.
+practical workflow for adding or updating patch-file signatures, verifying that
+they match, and debugging failures.
 
 ## Patch Types
 
@@ -22,12 +22,15 @@ route bundles.
 - `Hook/spotify_native_patch.h`
 - `Hook/cef_zip_reader_hook.cpp`
 - `Hook/cef_url_hook.cpp`
+- `Hook/config.h`
 - `Hook/pattern.cpp`
 - `Hook/memory.cpp`
 - `Hook/loader.cpp`
 - `Hook/loader.h`
 - `Loader/dllmain.cpp`
 - `config.ini`
+- `patches/native.ini`
+- `patches/frontend.ini`
 
 ## Build Setup
 
@@ -48,10 +51,12 @@ Before launching Spotify under the debugger, the Spotify folder should contain:
 - `blockthespot.dll`
 - `blockthespot.pdb`
 - `config.ini`
+- `patches/native.ini`
+- `patches/frontend.ini`
 
 The loader uses relative paths such as `./blockthespot.dll`,
-`./chrome_elf_required.dll`, and `./config.ini`, so the working directory must
-be the Spotify install folder.
+`./chrome_elf_required.dll`, `./config.ini`, and `./patches/*.ini`, so the
+working directory must be the Spotify install folder.
 
 ## Launching From Visual Studio
 
@@ -101,6 +106,27 @@ signature until it identifies exactly one `.text` location.
 
 `patch range exceeds signature` means `Offset + len(Value)` does not fit inside
 the parsed signature bytes.
+
+## Config Layout
+
+`config.ini` is the small runtime config. It contains logging, debug, URL block,
+CEF offset, crashpad, Spotify version, and patch-file path settings:
+
+```ini
+[Spotify]
+Version=1.2.93.667
+
+[PatchFiles]
+Native=./patches/native.ini
+Frontend=./patches/frontend.ini
+```
+
+The release workflow uses `[Spotify] Version` for the generated zip name,
+release tag default, and release title.
+
+Native `Spotify.dll` byte patch signatures live in `patches/native.ini`.
+
+JavaScript and CSS buffer patch signatures live in `patches/frontend.ini`.
 
 ## Runtime Flow
 
@@ -157,8 +183,8 @@ Hook/cef_zip_reader_hook.cpp
 
 ## Native Spotify.dll Patches
 
-Native patches are configured through the `[NativePatches]` list and one section
-per patch.
+Native patches are configured in `patches/native.ini` through the
+`[NativePatches]` list and one section per patch.
 
 Example:
 
@@ -235,7 +261,7 @@ Native patch validation is intentionally strict:
 4. Wildcard relative call/jump displacements and RIP-relative addresses.
 5. Verify the signature matches exactly one intended site.
 6. Calculate `Offset` from the beginning of the signature to the patch point.
-7. Add the patch section to `config.ini`.
+7. Add the patch section to `patches/native.ini`.
 8. Add the section name to `[NativePatches]`.
 9. Run Spotify with `Level=2` logging and check for
    `<section>: patch applied.`
@@ -313,7 +339,7 @@ ProductStatePrefetchKeys: patch applied.
 
 ## JavaScript And CSS Buffer Patches
 
-Buffer patches are configured in two stages:
+Buffer patches are configured in `patches/frontend.ini` in two stages:
 
 1. `[Buffer_modify]` lists frontend files to inspect.
 2. Each file section lists patch section names to apply to that file.
@@ -386,7 +412,7 @@ Use this loop when a JavaScript or CSS signature stops matching.
 6. Build a new hex signature.
 7. Wildcard unstable bytes.
 8. Recalculate `Offset_N`.
-9. Update only one patch section.
+9. Update only one patch section in `patches/frontend.ini`.
 10. Relaunch and confirm `FindPattern failed.` is gone for that section.
 
 Debug builds currently dump useful frontend files such as:
@@ -532,6 +558,9 @@ Check:
 - The original DLL was renamed to `chrome_elf_required.dll`.
 - `blockthespot.dll` is in the Spotify folder.
 - `config.ini` is in the Spotify folder.
+- The `patches` folder is in the Spotify folder.
+- `patches/native.ini` and `patches/frontend.ini` exist, or `[PatchFiles]`
+  points to the correct replacement paths.
 - Visual Studio is using the Spotify folder as working directory.
 - The process is the main Spotify process, not a child process with `--type=`.
 
@@ -539,6 +568,7 @@ Check:
 
 Check:
 
+- `[PatchFiles] Native` points to the native patch file.
 - The section is listed in `[NativePatches]`.
 - The numbering in `[NativePatches]` is contiguous.
 - The section has `Enable=1`.
@@ -552,6 +582,7 @@ Check:
 
 Check:
 
+- `[PatchFiles] Frontend` points to the frontend patch file.
 - `[Buffer_modify] Enable=1`.
 - The frontend file is listed in `[Buffer_modify]`.
 - The patch section is listed under the file section.
@@ -579,8 +610,8 @@ Before shipping a signature update:
 - Build `Release|x64`.
 
 For native patches, also verify the signature against the target DLL before
-committing the config. A signature that matches multiple locations is not safe
-unless each location is intentionally patchable with the same bytes.
+committing the patch file. A signature that matches multiple locations is not
+safe unless each location is intentionally patchable with the same bytes.
 
 ## Summary Workflow
 
@@ -590,7 +621,7 @@ For native patches:
 2. Build a unique signature.
 3. Choose replacement bytes.
 4. Calculate `Offset`.
-5. Add the section and list it in `[NativePatches]`.
+5. Add the section to `patches/native.ini` and list it in `[NativePatches]`.
 6. Verify logs and behavior.
 
 For frontend buffer patches:
@@ -600,5 +631,5 @@ For frontend buffer patches:
 3. Convert the signature to hex.
 4. Wildcard unstable bytes.
 5. Recalculate `Offset_N`.
-6. Update one section at a time.
+6. Update one `patches/frontend.ini` section at a time.
 7. Relaunch and check logs.

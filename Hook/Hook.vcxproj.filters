@@ -27,6 +27,9 @@
     <ClInclude Include="cef_zip_reader_hook.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="spotify_native_patch.h">
       <Filter>Header Files</Filter>
     </ClInclude>

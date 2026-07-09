@@ -46,7 +46,12 @@ jobs:
         id: meta
         shell: pwsh
         run: |
-          $spotifyVersion = (Get-Content config.ini | Select-Object -First 2 | Select-Object -Last 1).TrimStart(";").Trim()
+          $spotifyVersion = (
+            Get-Content config.ini |
+            Where-Object { $_ -match '^\s*Version\s*=' } |
+            Select-Object -First 1
+          ) -replace '^\s*Version\s*=\s*', ''
+          $spotifyVersion = $spotifyVersion.Trim()
           $tag = "${{ inputs.tag_name }}"
           if ([string]::IsNullOrWhiteSpace($tag)) {
             $tag = "v$spotifyVersion-build.${{ github.run_number }}"
@@ -76,17 +81,27 @@ jobs:
         shell: pwsh
         run: msbuild Hook/Hook.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$env:GITHUB_WORKSPACE\\"
 
-      - name: Build Debug loader DLL
+      - name: Build Release loader DLL
         shell: pwsh
-        run: msbuild Loader/Loader.vcxproj /m /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir="$env:GITHUB_WORKSPACE\\"
+        run: msbuild Loader/Loader.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$env:GITHUB_WORKSPACE\\"
 
-      - name: Collect release assets
+      - name: Package release zip
+        id: package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item out/x64/Release/blockthespot.dll dist/blockthespot.dll -Force
-          Copy-Item out/x64/Debug/chrome_elf.dll dist/chrome_elf.dll -Force
-          Copy-Item config.ini dist/config.ini -Force
+          $packageDir = "dist/package"
+          $patchDir = Join-Path $packageDir "patches"
+          $zipPath = "dist/BlockTheSpot-${{ steps.meta.outputs.spotify_version }}.zip"
+
+          New-Item -ItemType Directory -Force -Path $patchDir | Out-Null
+          Copy-Item out/x64/Release/blockthespot.dll (Join-Path $packageDir "blockthespot.dll") -Force
+          Copy-Item out/x64/Release/chrome_elf.dll (Join-Path $packageDir "chrome_elf.dll") -Force
+          Copy-Item config.ini (Join-Path $packageDir "config.ini") -Force
+          Copy-Item patches/native.ini (Join-Path $patchDir "native.ini") -Force
+          Copy-Item patches/frontend.ini (Join-Path $patchDir "frontend.ini") -Force
+
+          Compress-Archive -Path "$packageDir/*" -DestinationPath $zipPath -Force
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -96,7 +111,4 @@ jobs:
           body_path: ${{ steps.meta.outputs.body_path }}
           draft: ${{ inputs.draft }}
           prerelease: ${{ inputs.prerelease }}
-          files: |
-            dist/blockthespot.dll
-            dist/chrome_elf.dll
-            dist/config.ini
+          files: ${{ steps.package.outputs.zip_path }}
