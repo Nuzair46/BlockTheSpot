@@ -192,6 +192,10 @@ void init_log_thread() noexcept
 		CONFIG_FILEA
 	));
 
+	if (0 != GetPrivateProfileIntA("Debug", "Enable", 0, CONFIG_FILEA)) {
+		logger.log_level = Log_level::DEBUG;
+	}
+
 	if (Log_level::NONE == logger.log_level) {
 		OutputDebugStringW(L"init_log_thread: log disable!\n");
 		return;

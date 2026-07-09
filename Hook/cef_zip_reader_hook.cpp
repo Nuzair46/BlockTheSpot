@@ -9,34 +9,103 @@
 
 static inline size_t cef_buffer_modify_count = 0;
 static inline char cef_buffer_list[MAX_CEF_BUFFER_MODIFY_LIST][MAX_URL_LEN] = {};
+static inline size_t debug_dumped_file_count = 0;
+static inline char debug_dumped_files[MAX_CEF_BUFFER_MODIFY_LIST][MAX_URL_LEN] = {};
 
-#ifdef _DEBUG
-static void debug_dump_target_file(const char* file_name, const void* buffer, size_t bufferSize) noexcept
+static bool debug_enabled() noexcept
+{
+	return 0 != GetPrivateProfileIntA("Debug", "Enable", 0, CONFIG_FILEA);
+}
+
+static bool debug_signature_log_enabled() noexcept
+{
+	return debug_enabled();
+}
+
+static void debug_make_safe_dump_name(const char* file_name, char* out, size_t out_size) noexcept
+{
+	if (!out || 0 == out_size) {
+		return;
+	}
+
+	size_t i = 0;
+	for (; file_name && file_name[i] && i + 1 < out_size; ++i) {
+		const char c = file_name[i];
+		switch (c) {
+		case '/':
+		case '\\':
+		case ':':
+		case '*':
+		case '?':
+		case '"':
+		case '<':
+		case '>':
+		case '|':
+			out[i] = '_';
+			break;
+		default:
+			out[i] = c;
+			break;
+		}
+	}
+	out[i] = '\0';
+}
+
+static bool debug_file_already_dumped(const char* file_name) noexcept
+{
+	for (size_t i = 0; i < debug_dumped_file_count; ++i) {
+		if (0 == lstrcmpiA(file_name, debug_dumped_files[i])) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void debug_mark_file_dumped(const char* file_name) noexcept
+{
+	if (debug_dumped_file_count >= MAX_CEF_BUFFER_MODIFY_LIST) {
+		return;
+	}
+
+	strncpy_s(debug_dumped_files[debug_dumped_file_count], MAX_URL_LEN, file_name, _TRUNCATE);
+	++debug_dumped_file_count;
+}
+
+static void debug_dump_configured_file(const char* file_name, const void* buffer, size_t bufferSize) noexcept
 {
 	if (!file_name || !buffer || 0 == bufferSize || bufferSize > MAXDWORD) {
 		return;
 	}
 
-	static bool dumped_snapshot = false;
-	static bool dumped_pip = false;
-	bool* dumped = nullptr;
-	const char* output_name = nullptr;
-
-	if (0 == lstrcmpiA(file_name, "xpui-snapshot.js")) {
-		dumped = &dumped_snapshot;
-		output_name = "dump_xpui-snapshot.js";
-	}
-	else if (0 == lstrcmpiA(file_name, "xpui-pip-mini-player.js")) {
-		dumped = &dumped_pip;
-		output_name = "dump_xpui-pip-mini-player.js";
+	if (!debug_enabled()) {
+		return;
 	}
 
-	if (!dumped || *dumped) {
+	if (debug_file_already_dumped(file_name)) {
+		return;
+	}
+	debug_mark_file_dumped(file_name);
+
+	char dump_dir[MAX_PATH]{};
+	strcpy_s(dump_dir, "debugjs");
+
+	if (FALSE == CreateDirectoryA(dump_dir, nullptr) && ERROR_ALREADY_EXISTS != GetLastError()) {
+		return;
+	}
+
+	char safe_name[MAX_PATH]{};
+	debug_make_safe_dump_name(file_name, safe_name, sizeof(safe_name));
+	if ('\0' == safe_name[0]) {
+		return;
+	}
+
+	char output_path[MAX_PATH]{};
+	if (_snprintf_s(output_path, sizeof(output_path), _TRUNCATE, "%s\\%s", dump_dir, safe_name) < 0) {
 		return;
 	}
 
 	const HANDLE file = CreateFileA(
-		output_name,
+		output_path,
 		GENERIC_WRITE,
 		FILE_SHARE_READ,
 		nullptr,
@@ -56,13 +125,12 @@ static void debug_dump_target_file(const char* file_name, const void* buffer, si
 		static_cast<DWORD>(bufferSize),
 		&written,
 		nullptr)) {
-		*dumped = true;
 		_snprintf_s(
 			shared_buffer,
 			SHARED_BUFFER_SIZE,
 			_TRUNCATE,
-			"debug_dump_target_file: wrote %s (%lu bytes)",
-			output_name,
+			"debug_dump_configured_file: wrote %s (%lu bytes)",
+			output_path,
 			static_cast<unsigned long>(written)
 		);
 		log_info(shared_buffer);
@@ -70,9 +138,6 @@ static void debug_dump_target_file(const char* file_name, const void* buffer, si
 
 	CloseHandle(file);
 }
-#else
-static void debug_dump_target_file(const char* file_name, const void* buffer, size_t bufferSize) noexcept {}
-#endif
 
 using cef_zip_reader_create_t = void* (*)(void* stream);
 static inline cef_zip_reader_create_t cef_zip_reader_create_orig = nullptr;
@@ -171,6 +236,22 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 			return false;
 		}
 
+		if (debug_signature_log_enabled()) {
+			_snprintf_s(
+				shared_buffer,
+				SHARED_BUFFER_SIZE,
+				_TRUNCATE,
+				"debug_signature: %s %s signature_%zu bytes=%zu offset=%u value_bytes=%zu",
+				file_name,
+				patch_name,
+				display_idx,
+				signature_hex_size,
+				modify[i].offset,
+				modify[i].patch_size
+			);
+			log_debug(shared_buffer);
+		}
+
 		modify_count = display_idx;
 	}
 
@@ -191,6 +272,20 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 			log_debug(shared_buffer);
 			return false;
 		}
+		if (debug_signature_log_enabled()) {
+			_snprintf_s(
+				shared_buffer,
+				SHARED_BUFFER_SIZE,
+				_TRUNCATE,
+				"debug_signature: %s %s signature_%zu matched=%p patch_at=%p",
+				file_name,
+				patch_name,
+				display_idx,
+				address,
+				address + modify[i].offset
+			);
+			log_debug(shared_buffer);
+		}
 		memcpy(address + modify[i].offset, modify[i].value, modify[i].patch_size);
 	}
 
@@ -200,6 +295,7 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 static void patch_file(const char* file_name, void* buffer, size_t bufferSize) noexcept
 {
 	char patch_name[MAX_URL_LEN]{};
+
 	for (size_t i = 0; i < MAX_CEF_BUFFER_MODIFY_LIST; ++i) {
 		const size_t display_idx = i + 1;
 		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "%zu", display_idx);
@@ -244,8 +340,6 @@ int CALLBACK cef_zip_reader_read_file_hook(void* self, void* buffer, size_t buff
 		return _retval;
 	}
 
-	debug_dump_target_file(ansi_file_name, buffer, bufferSize);
-
 	const bool do_patch = need_patch(ansi_file_name);
 
 	char log_buf[256]{};
@@ -260,6 +354,7 @@ int CALLBACK cef_zip_reader_read_file_hook(void* self, void* buffer, size_t buff
 	log_debug(log_buf);
 
 	if (true == do_patch) {
+		debug_dump_configured_file(ansi_file_name, buffer, bufferSize);
 		patch_file(ansi_file_name, buffer, bufferSize);
 	}
 	css_hide_vbar(ansi_file_name, buffer, bufferSize);

@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "loader.h"
-#include "developer_mode.h"
+#include "spotify_native_patch.h"
 #include "IAT_hook.h"
 #include "kill_crashpad.h"
 #include "log_thread.h"
@@ -95,7 +95,7 @@ VOID CALLBACK bts_main(ULONG_PTR param)
 			LoadLibraryW(L"libcef.dll");
 
 		if (!spotify_dll_handle) {
-			log_debug("Failed to load spotify.dll for developer mode hooking.");
+			log_debug("Failed to load spotify.dll for native patching.");
 			return;
 		}
 		if (!libcef_dll_handle) {
@@ -103,7 +103,7 @@ VOID CALLBACK bts_main(ULONG_PTR param)
 			return;
 		}
 
-		hook_developer_mode(spotify_dll_handle);
+		hook_spotify_native_patches(spotify_dll_handle);
 		libcef_IAT_hook_GetProcAddress(spotify_dll_handle);
 		hook_cef_url(libcef_dll_handle);
 		hook_cef_reader(libcef_dll_handle);	// not finished yet.
