@@ -96,6 +96,12 @@ define `Signature_1`.
 `FindPattern failed.` means the configured signature did not match the buffer or
 native `.text` section being scanned.
 
+`signature matched more than once.` is a native-patch failure. Extend the
+signature until it identifies exactly one `.text` location.
+
+`patch range exceeds signature` means `Offset + len(Value)` does not fit inside
+the parsed signature bytes.
+
 ## Runtime Flow
 
 The high-level loader path is:
@@ -130,6 +136,7 @@ Hook/spotify_native_patch.cpp
     -> parses the signature with ?? wildcards
     -> reads [section] Value
     -> reads [section] Offset
+    -> verifies the signature matches exactly one .text location
     -> scans Spotify.dll .text with FindPattern()
     -> writes Value at matched_address + Offset
 ```
@@ -206,8 +213,19 @@ first byte that should be overwritten.
 
 The patcher validates that `Value` fits inside the matched signature range and
 then calls `patch_instruction()` in `Hook/memory.cpp`, which temporarily changes
-page protection to `PAGE_EXECUTE_READWRITE`, writes the bytes, and restores the
-previous page protection.
+page protection to `PAGE_EXECUTE_READWRITE`, writes the bytes, flushes the
+instruction cache, and restores the previous page protection. If changing page
+protection or restoring it fails, the patch is logged as failed.
+
+Native patch validation is intentionally strict:
+
+- `Signature` and `Value` must be present and parse to at least one byte.
+- `??` is the only wildcard form.
+- Spaces, tabs, CR, and LF are ignored while parsing.
+- `Offset + len(Value)` must fit inside the parsed `Signature`.
+- The signature must match exactly one location in `Spotify.dll`'s `.text`
+  section.
+- Parsed signature and value bytes must fit in the fixed `Modify` buffers.
 
 ### Adding A Native Patch
 
@@ -327,7 +345,10 @@ Rules:
   on.
 - Each patch section can contain multiple signatures using numbered keys:
   `Signature_1`, `Value_1`, `Offset_1`, then `Signature_2`, `Value_2`,
-  `Offset_2`, etc.
+  `Offset_2`.
+- The current code reads up to two signature/value/offset groups per patch
+  section.
+- The current hard limit is 10 frontend files in `[Buffer_modify]`.
 
 ### Buffer Patch Fields
 
@@ -340,6 +361,17 @@ first byte that should be overwritten.
 
 The buffer patcher writes directly into the already-loaded file buffer before
 Spotify consumes it.
+
+Buffer patch validation:
+
+- `Signature_N` and `Value_N` must be present and parse to at least one byte.
+- `??` is the only wildcard form.
+- Spaces, tabs, CR, and LF are ignored while parsing.
+- `Offset_N + len(Value_N)` must fit inside the parsed `Signature_N`.
+- The final write must also fit inside the target file buffer.
+- Buffer patches preserve first-match behavior. If a signature can match
+  multiple frontend locations, make it more specific unless the first match is
+  deliberately the target.
 
 ## Updating A Buffer Signature
 
@@ -512,7 +544,9 @@ Check:
 - The section has `Enable=1`.
 - `Signature`, `Value`, and `Offset` are present.
 - The signature matches the current `Spotify.dll`.
+- The signature does not match more than one `.text` location.
 - The patch offset lands on the intended instruction.
+- `Offset + len(Value)` fits inside the signature.
 
 ### Buffer Patch Does Not Apply
 
@@ -524,6 +558,7 @@ Check:
 - The patch section has `Signature_N`, `Value_N`, and `Offset_N`.
 - The signature matches the dumped frontend file.
 - The offset still points to the intended patch point.
+- `Offset_N + len(Value_N)` fits inside the signature and file buffer.
 
 ### Memory Window Is Hard To Search
 

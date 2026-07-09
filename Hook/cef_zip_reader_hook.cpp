@@ -139,6 +139,19 @@ static void debug_dump_configured_file(const char* file_name, const void* buffer
 	CloseHandle(file);
 }
 
+static bool patch_range_inside(size_t base_offset, size_t patch_offset, size_t patch_size, size_t buffer_size) noexcept
+{
+	if (0 == patch_size || base_offset > buffer_size) {
+		return false;
+	}
+
+	if (patch_offset > buffer_size - base_offset) {
+		return false;
+	}
+
+	return patch_size <= buffer_size - base_offset - patch_offset;
+}
+
 using cef_zip_reader_create_t = void* (*)(void* stream);
 static inline cef_zip_reader_create_t cef_zip_reader_create_orig = nullptr;
 static inline cef_zip_reader_create_t cef_zip_reader_create_impl = nullptr;
@@ -160,10 +173,15 @@ static bool need_patch(const char* in_file) noexcept {
 
 static inline bool do_patch_buffer(const char* file_name, const char* patch_name, void* buffer, size_t bufferSize) noexcept
 {
+	if (!file_name || !patch_name || !buffer || 0 == bufferSize) {
+		return false;
+	}
+
 	constexpr auto PAIR_MODIFY = 2;
 	Modify modify[PAIR_MODIFY] = {};
+	size_t signature_size[PAIR_MODIFY]{};
 
-	char temp_buffer[SHARED_BUFFER_SIZE];
+	char temp_buffer[SHARED_BUFFER_SIZE]{};
 	size_t modify_count = 0;
 
 	for (size_t i = 0; i < PAIR_MODIFY; ++i) {
@@ -185,19 +203,26 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 			break;
 		}
 
-		const auto signature_hex_size = parse_signaure(temp_buffer,
+		const auto signature_hex_size = parse_signature(temp_buffer,
 			signature_raw_length,
 			modify[i].signature,
 			modify[i].mask,
-			SHARED_BUFFER_SIZE);
+			ARRAYSIZE(modify[i].signature) - 1);
 
 		if (SIZE_MAX == signature_hex_size) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu parse fail, limit exceed", file_name, patch_name, display_idx);
+			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu parse failed", file_name, patch_name, display_idx);
+			log_debug(shared_buffer);
+			return false;
+		}
+
+		if (0 == signature_hex_size) {
+			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu parsed to zero bytes", file_name, patch_name, display_idx);
 			log_debug(shared_buffer);
 			return false;
 		}
 
 		modify[i].mask[signature_hex_size] = '\0';
+		signature_size[i] = signature_hex_size;
 
 		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Offset_%zu", display_idx);
 		modify[i].offset = GetPrivateProfileIntA(
@@ -217,21 +242,34 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 			CONFIG_FILEA
 		);
 
-		modify[i].patch_size = parse_hex(
-			temp_buffer,
-			value_raw_length,
-			modify[i].value,
-			SHARED_BUFFER_SIZE
-		);
-
-		if (SIZE_MAX == modify[i].patch_size) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu parse hex limit exceed", file_name, patch_name, display_idx);
+		if (0 == value_raw_length) {
+			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s value_%zu empty", file_name, patch_name, display_idx);
 			log_debug(shared_buffer);
 			return false;
 		}
 
-		if (modify[i].patch_size > signature_hex_size) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu patch_size > signature_hex_size", file_name, patch_name, display_idx);
+		modify[i].patch_size = parse_hex(
+			temp_buffer,
+			value_raw_length,
+			modify[i].value,
+			ARRAYSIZE(modify[i].value)
+		);
+
+		if (SIZE_MAX == modify[i].patch_size) {
+			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s value_%zu parse failed", file_name, patch_name, display_idx);
+			log_debug(shared_buffer);
+			return false;
+		}
+
+		if (0 == modify[i].patch_size) {
+			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s value_%zu parsed to zero bytes", file_name, patch_name, display_idx);
+			log_debug(shared_buffer);
+			return false;
+		}
+
+		const auto offset = static_cast<size_t>(modify[i].offset);
+		if (offset > signature_hex_size || modify[i].patch_size > signature_hex_size - offset) {
+			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu patch range exceeds signature", file_name, patch_name, display_idx);
 			log_debug(shared_buffer);
 			return false;
 		}
@@ -263,15 +301,25 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 		const size_t display_idx = i + 1;
 		const auto address = FindPattern(
 			reinterpret_cast<BYTE*>(buffer),
-			static_cast<DWORD>(bufferSize),
+			bufferSize,
 			modify[i].signature,
-			reinterpret_cast<char*>(&modify[i].mask)
+			reinterpret_cast<char*>(&modify[i].mask),
+			signature_size[i]
 		);
 		if (nullptr == address) {
 			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu FindPattern failed.", file_name, patch_name, display_idx);
 			log_debug(shared_buffer);
 			return false;
 		}
+
+		const auto match_offset = static_cast<size_t>(address - reinterpret_cast<BYTE*>(buffer));
+		const auto patch_offset = static_cast<size_t>(modify[i].offset);
+		if (!patch_range_inside(match_offset, patch_offset, modify[i].patch_size, bufferSize)) {
+			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu patch overflow", file_name, patch_name, display_idx);
+			log_debug(shared_buffer);
+			return false;
+		}
+
 		if (debug_signature_log_enabled()) {
 			_snprintf_s(
 				shared_buffer,
@@ -286,7 +334,7 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 			);
 			log_debug(shared_buffer);
 		}
-		memcpy(address + modify[i].offset, modify[i].value, modify[i].patch_size);
+		memcpy(address + patch_offset, modify[i].value, modify[i].patch_size);
 	}
 
 	return true;
@@ -323,15 +371,40 @@ int CALLBACK cef_zip_reader_t_read_file_hook(struct _cef_zip_reader_t* self, voi
 int CALLBACK cef_zip_reader_read_file_hook(void* self, void* buffer, size_t bufferSize)
 #endif
 {
+	if (!cef_zip_reader_read_file_orig) {
+		return 0;
+	}
+
 	int _retval = cef_zip_reader_read_file_orig(self, buffer, bufferSize);
 
+	if (!self || !buffer || 0 == bufferSize) {
+		return _retval;
+	}
+
 #ifdef USE_LIBCEF
-	std::wstring file_name = Utils::ToString(self->get_file_name(self)->str);
+	if (!self->get_file_name) {
+		return _retval;
+	}
+	const auto cef_file_name = self->get_file_name(self);
+	if (!cef_file_name || !cef_file_name->str) {
+		return _retval;
+	}
+	const wchar_t* file_name = cef_file_name->str;
 #else
 	using get_file_name_t = void* (__stdcall*)(void*);
 	const auto get_file_name = get_funct_t<get_file_name_t>(
 		self, CEF_ZIP_READER_GET_FILE_NAME_OFFSET);
-	const wchar_t* file_name = *reinterpret_cast<wchar_t**>(get_file_name(self));
+	if (!get_file_name) {
+		return _retval;
+	}
+	const auto file_name_utf16 = get_file_name(self);
+	if (!file_name_utf16) {
+		return _retval;
+	}
+	const wchar_t* file_name = *reinterpret_cast<wchar_t**>(file_name_utf16);
+	if (!file_name) {
+		return _retval;
+	}
 #endif
 
 	char ansi_file_name[MAX_URL_LEN];
@@ -364,6 +437,10 @@ int CALLBACK cef_zip_reader_read_file_hook(void* self, void* buffer, size_t buff
 
 void* cef_zip_reader_create_stub(void* stream)
 {
+	if (!cef_zip_reader_create_impl) {
+		return nullptr;
+	}
+
 	return cef_zip_reader_create_impl(stream);
 }
 
@@ -373,22 +450,44 @@ cef_zip_reader_t* cef_zip_reader_create_hook(cef_stream_reader_t* stream)
 void* cef_zip_reader_create_hook(void* stream)
 #endif
 {
+	if (!cef_zip_reader_create_orig) {
+		return nullptr;
+	}
+
 #ifdef USE_LIBCEF
 	cef_zip_reader_t* zip_reader = (cef_zip_reader_t*)cef_zip_reader_create_orig(stream);
+	if (!zip_reader || !zip_reader->read_file) {
+		return zip_reader;
+	}
 	cef_zip_reader_t_read_file_orig = (_cef_zip_reader_t_read_file)zip_reader->read_file;
+	zip_reader->read_file = cef_zip_reader_t_read_file_hook;
 #else
 	auto zip_reader = cef_zip_reader_create_orig(stream);
+	if (!zip_reader) {
+		return zip_reader;
+	}
 	cef_zip_reader_read_file_orig =
 		get_funct_t<cef_zip_reader_read_file_t>(
 			zip_reader, CEF_ZIP_READER_GET_READ_FILE_OFFSET);
-	overwrite_funct_t<cef_zip_reader_read_file_t>(
-		zip_reader, CEF_ZIP_READER_GET_READ_FILE_OFFSET, cef_zip_reader_read_file_hook);
+	if (!cef_zip_reader_read_file_orig) {
+		log_debug("cef_zip_reader_create_hook: read_file slot is null.");
+		return zip_reader;
+	}
+	if (!overwrite_funct_t<cef_zip_reader_read_file_t>(
+		zip_reader, CEF_ZIP_READER_GET_READ_FILE_OFFSET, cef_zip_reader_read_file_hook)) {
+		log_debug("cef_zip_reader_create_hook: failed to overwrite read_file slot.");
+	}
 #endif
 	return zip_reader;
 }
 
 static inline void do_hook_cef_zip_reader(HMODULE libcef_dll_handle) noexcept
 {
+	if (!cef_zip_reader_create_orig) {
+		log_debug("do_hook_cef_zip_reader: cef_zip_reader_create_orig is null.");
+		return;
+	}
+
 	cef_zip_reader_create_impl = cef_zip_reader_create_hook;
 	log_debug("do_hook_cef_zip_reader: cef_zip_reader_create_impl = cef_zip_reader_create_hook.");
 	log_info("do_hook_cef_zip_reader: patch applied.");
@@ -429,6 +528,7 @@ static inline void load_cef_reader_config()
 		}
 		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Load buffer modify %zu:%s", display_idx, cef_buffer_list[i]);
 		log_debug(shared_buffer);
+		cef_buffer_modify_count = display_idx;
 	}
 	_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "%zu modify list loaded", cef_buffer_modify_count);
 	log_info(shared_buffer);
@@ -447,10 +547,19 @@ static inline bool is_cef_reader_hook() noexcept
 
 void hook_cef_reader(HMODULE libcef_dll_handle) noexcept
 {
+	if (!libcef_dll_handle || !GetProcAddress_orig) {
+		log_debug("hook_cef_reader: libcef handle or GetProcAddress_orig is null.");
+		return;
+	}
+
 	cef_zip_reader_create_orig =
 		reinterpret_cast<cef_zip_reader_create_t>(
 			GetProcAddress_orig(libcef_dll_handle, "cef_zip_reader_create"));
 	cef_zip_reader_create_impl = cef_zip_reader_create_orig;
+	if (!cef_zip_reader_create_orig) {
+		log_debug("hook_cef_reader: cef_zip_reader_create not found.");
+		return;
+	}
 
 	if (true == is_cef_reader_hook()) {
 		load_cef_reader_config();

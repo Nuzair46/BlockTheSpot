@@ -39,9 +39,12 @@ static constexpr BYTE hex_pair(char hi, char lo)
 {
 	BYTE h = hexchar(hi);
 	BYTE l = hexchar(lo);
-	//BYTE h = hexchar_to_byte(hi);
-	//BYTE l = hexchar_to_byte(lo);
 	return (h | l) == 0xFF ? 0xFF : (BYTE)((h << 4) | l);
+}
+
+static constexpr bool is_pattern_space(char c) noexcept
+{
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
 bool get_text_section(HMODULE module, DLL_section* const dll_section) noexcept
@@ -58,43 +61,78 @@ bool get_text_section(HMODULE module, DLL_section* const dll_section) noexcept
 		);
 
 	PIMAGE_DOS_HEADER dos = reinterpret_cast<PIMAGE_DOS_HEADER>(module);
+	if (IMAGE_DOS_SIGNATURE != dos->e_magic) {
+		return false;
+	}
+
 	PIMAGE_NT_HEADERS nt = reinterpret_cast<PIMAGE_NT_HEADERS>(
 		reinterpret_cast<BYTE*>(module) + dos->e_lfanew
 		);
+	if (IMAGE_NT_SIGNATURE != nt->Signature) {
+		return false;
+	}
 
 	PIMAGE_SECTION_HEADER section = IMAGE_FIRST_SECTION(nt);
 	for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section) {
 		if (0 == memcmp(section->Name, TEXT_STR, TEXT_LEN)) {
 			dll_section->address = reinterpret_cast<BYTE*>(module) + section->VirtualAddress;
-			dll_section->size = section->Misc.VirtualSize;
+			dll_section->size = static_cast<size_t>(section->Misc.VirtualSize);
 			return true;
 		}
 	}
 	return false;
 }
 
-bool DataCompare(BYTE* pData, BYTE* bSig, char* szMask) noexcept
+bool DataCompare(const BYTE* pData, const BYTE* bSig, const char* szMask, size_t pattern_size) noexcept
 {
-	for (; *szMask; ++szMask, ++pData, ++bSig)
-	{
-		if (*szMask == 'x' && *pData != *bSig)
-			return false;
+	if (!pData || !bSig || !szMask || 0 == pattern_size) {
+		return false;
 	}
-	return (*szMask) == NULL;
+
+	for (size_t i = 0; i < pattern_size; ++i) {
+		if ('x' == szMask[i] && pData[i] != bSig[i]) {
+			return false;
+		}
+	}
+	return true;
 }
 
-BYTE* FindPattern(BYTE* dwAddress, DWORD dwSize, BYTE* pbSig, char* szMask) noexcept
+BYTE* FindPattern(BYTE* dwAddress, size_t dwSize, const BYTE* pbSig, const char* szMask, size_t pattern_size) noexcept
 {
-	for (DWORD i = NULL; i < dwSize; ++i)
-	{
-		if (DataCompare(dwAddress + i, pbSig, szMask))
+	if (!dwAddress || !pbSig || !szMask || 0 == pattern_size || dwSize < pattern_size) {
+		return nullptr;
+	}
+
+	const size_t last = dwSize - pattern_size;
+	for (size_t i = 0; i <= last; ++i) {
+		if (DataCompare(dwAddress + i, pbSig, szMask, pattern_size)) {
 			return dwAddress + i;
+		}
 	}
 	return nullptr;
 }
 
+size_t CountPatternMatches(BYTE* dwAddress, size_t dwSize, const BYTE* pbSig, const char* szMask, size_t pattern_size, size_t stop_after) noexcept
+{
+	if (!dwAddress || !pbSig || !szMask || 0 == pattern_size || dwSize < pattern_size || 0 == stop_after) {
+		return 0;
+	}
+
+	size_t count = 0;
+	const size_t last = dwSize - pattern_size;
+	for (size_t i = 0; i <= last; ++i) {
+		if (DataCompare(dwAddress + i, pbSig, szMask, pattern_size)) {
+			++count;
+			if (count >= stop_after) {
+				break;
+			}
+		}
+	}
+	return count;
+}
+
 // return SIZE_MAX on error.
-size_t parse_signaure(
+size_t parse_signature(
 	const char* src,
 	size_t src_len,
 	BYTE* out_bytes,
@@ -102,14 +140,18 @@ size_t parse_signaure(
 	size_t limit
 ) noexcept
 {
+	if (!src || !out_bytes || !out_mask || 0 == limit) {
+		return SIZE_MAX;
+	}
+
 	size_t i = 0;
 	size_t out = 0;
 
 	while (i < src_len)
 	{
 		// skip whitespace
-		char c = src[i];
-		if (c == ' ' || c == '\t')
+		const char c = src[i];
+		if (is_pattern_space(c))
 		{
 			++i;
 			continue;
@@ -148,6 +190,17 @@ size_t parse_signaure(
 	return out; // length of signature/mask
 }
 
+size_t parse_signaure(
+	const char* src,
+	size_t src_len,
+	BYTE* out_bytes,
+	char* out_mask,
+	size_t limit
+) noexcept
+{
+	return parse_signature(src, src_len, out_bytes, out_mask, limit);
+}
+
 size_t parse_hex(
 	const char* src,
 	size_t src_len,
@@ -155,14 +208,18 @@ size_t parse_hex(
 	size_t out_cap
 ) noexcept
 {
+	if (!src || !out_bytes || 0 == out_cap) {
+		return SIZE_MAX;
+	}
+
 	size_t i = 0;
 	size_t out = 0;
 
 	while (i < src_len)
 	{
 		// skip whitespace
-		char c = src[i];
-		if (c == ' ' || c == '\t')
+		const char c = src[i];
+		if (is_pattern_space(c))
 		{
 			++i;
 			continue;

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "IAT_hook.h"
 #include "WinTrust_hook.h"
+#include "memory.h"
 
 static FARPROC WINAPI GetProcAddress_hook(HMODULE hModule, LPCSTR lpProcName)
 {
@@ -56,14 +57,9 @@ bool process_IAT_hook_GetProcAddress(HMODULE module) noexcept
 				PROC* func = reinterpret_cast<PROC*>(&thunk->u1.Function);
 
 				if (*func == reinterpret_cast<PROC>(GetProcAddress)) {
-					DWORD oldProtect;
-					VirtualProtect(func, sizeof(PROC), PAGE_READWRITE, &oldProtect);
-
 					GetProcAddress_orig = reinterpret_cast<GetProcAddress_t>(*func);
-					*func = reinterpret_cast<PROC>(GetProcAddress_hook);
-
-					VirtualProtect(func, sizeof(PROC), oldProtect, &oldProtect);
-					return true;
+					PROC hook = reinterpret_cast<PROC>(GetProcAddress_hook);
+					return patch_instruction(func, &hook, sizeof(hook));
 				}
 			}
 		}

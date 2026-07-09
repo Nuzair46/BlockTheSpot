@@ -75,13 +75,23 @@ static inline bool is_chrome_elf_required_exist() noexcept
 VOID CALLBACK bts_main(ULONG_PTR param)
 {
 	get_ImageDirectoryEntryToDataEx();
-	process_IAT_hook_GetProcAddress(GetModuleHandleW(NULL));
+	const bool process_iat_hooked = process_IAT_hook_GetProcAddress(GetModuleHandleW(NULL));
 	const wchar_t* cmd =
 		reinterpret_cast<const wchar_t*>(param);
+	if (!cmd) {
+		cmd = GetCommandLineW();
+	}
+	if (!cmd) {
+		OutputDebugStringW(L"bts_main: command line is null.\n");
+		return;
+	}
 	//  Spotify's main process
 	if (NULL == wcsstr(cmd, L"--type=") &&
 		NULL == wcsstr(cmd, L"--url=")) {
 		init_log_thread();
+		if (!process_iat_hooked) {
+			log_debug("process_IAT_hook_GetProcAddress failed.");
+		}
 		if (false == is_chrome_elf_required_exist()) {
 			log_info("chrome_elf_required.dll file not found, Did you skip something?");
 			return;
@@ -104,7 +114,9 @@ VOID CALLBACK bts_main(ULONG_PTR param)
 		}
 
 		hook_spotify_native_patches(spotify_dll_handle);
-		libcef_IAT_hook_GetProcAddress(spotify_dll_handle);
+		if (!libcef_IAT_hook_GetProcAddress(spotify_dll_handle)) {
+			log_debug("libcef_IAT_hook_GetProcAddress failed.");
+		}
 		hook_cef_url(libcef_dll_handle);
 		hook_cef_reader(libcef_dll_handle);	// not finished yet.
 		modify_css_init();
