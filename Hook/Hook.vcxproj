@@ -179,8 +179,9 @@
   <ItemGroup>
     <ClInclude Include="cef_url_hook.h" />
     <ClInclude Include="cef_zip_reader_hook.h" />
+    <ClInclude Include="config.h" />
     <ClInclude Include="css_cosmetic.h" />
-    <ClInclude Include="developer_mode.h" />
+    <ClInclude Include="spotify_native_patch.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="funct_pointer.h" />
     <ClInclude Include="IAT_hook.h" />
@@ -197,7 +198,7 @@
     <ClCompile Include="cef_url_hook.cpp" />
     <ClCompile Include="cef_zip_reader_hook.cpp" />
     <ClCompile Include="css_cosmetic.cpp" />
-    <ClCompile Include="developer_mode.cpp" />
+    <ClCompile Include="spotify_native_patch.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="IAT_hook.cpp" />
     <ClCompile Include="kill_crashpad.cpp" />

@@ -27,7 +27,10 @@
     <ClInclude Include="cef_zip_reader_hook.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="developer_mode.h">
+    <ClInclude Include="config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="spotify_native_patch.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="funct_pointer.h">
@@ -89,7 +92,7 @@
     <ClCompile Include="IAT_hook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="developer_mode.cpp">
+    <ClCompile Include="spotify_native_patch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="cef_zip_reader_hook.cpp">

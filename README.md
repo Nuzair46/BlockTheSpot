@@ -14,7 +14,7 @@
 BlockTheSpot focuses on the Windows desktop client and keeps the patch surface small:
 
 - blocks ad-related requests
-- applies signature-based SPA patches through `config.ini`
+- applies signature-based native and SPA patches through `patches/*.ini`
 - enables Spotify's hidden developer menu
 
 This project is for the standard [Spotify desktop app](https://www.spotify.com/download/windows/) only. It does not support the Microsoft Store build.
@@ -33,8 +33,8 @@ or
 
 1. Open `%APPDATA%\Spotify`.
 2. Rename the original `chrome_elf.dll` to `chrome_elf_required.dll`.
-3. Download the latest release assets: `chrome_elf.dll`, `blockthespot.dll`, and `config.ini`.
-4. Copy those files into `%APPDATA%\Spotify`.
+3. Download the latest `BlockTheSpot-*.zip` release asset.
+4. Extract it into `%APPDATA%\Spotify`.
 5. Start Spotify.
 
 ## Update after Spotify updates
@@ -43,16 +43,16 @@ or
 
 1. Close Spotify completely.
 2. Open `%APPDATA%\Spotify`.
-3. Remove the custom `chrome_elf.dll`, `blockthespot.dll`, and `config.ini`.
+3. Remove the custom `chrome_elf.dll`, `blockthespot.dll`, `config.ini`, and `patches`.
 4. If Spotify restored its stock `chrome_elf.dll`, rename it to `chrome_elf_required.dll`.
-5. Download the latest release assets again.
-6. Copy `chrome_elf.dll`, `blockthespot.dll`, and `config.ini` into `%APPDATA%\Spotify`.
+5. Download the latest `BlockTheSpot-*.zip` release asset again.
+6. Extract it into `%APPDATA%\Spotify`.
 7. Start Spotify.
 
 ## Uninstall
 
 1. Close Spotify.
-2. Remove `chrome_elf.dll`, `blockthespot.dll`, and `config.ini` from `%APPDATA%\Spotify`.
+2. Remove `chrome_elf.dll`, `blockthespot.dll`, `config.ini`, and `patches` from `%APPDATA%\Spotify`.
 3. Rename `chrome_elf_required.dll` back to `chrome_elf.dll`.
 4. Start Spotify again, or reinstall Spotify if you want a completely clean state.
 

@@ -25,6 +25,8 @@ struct Log_work
 	Log_entry buffer[LOG_RING_SIZE]{};
 	size_t write = 0;
 	size_t read = 0;
+	CRITICAL_SECTION lock{};
+	bool lock_initialized = false;
 };
 
 static inline Log_work logger;
@@ -32,6 +34,20 @@ static inline Log_work logger;
 static inline size_t ring_next(size_t idx) noexcept
 {
 	return (idx + 1) % LOG_RING_SIZE;
+}
+
+static inline void lock_logger() noexcept
+{
+	if (logger.lock_initialized) {
+		EnterCriticalSection(&logger.lock);
+	}
+}
+
+static inline void unlock_logger() noexcept
+{
+	if (logger.lock_initialized) {
+		LeaveCriticalSection(&logger.lock);
+	}
 }
 
 VOID CALLBACK log_work(ULONG_PTR param);
@@ -83,7 +99,7 @@ static inline bool prepare_log() noexcept
 
 VOID CALLBACK log_work(ULONG_PTR param)
 {
-	static char bulk_buffer[LOG_BULK_BUFFER_SIZE];
+	char bulk_buffer[LOG_BULK_BUFFER_SIZE]{};
 
 	if (INVALID_HANDLE_VALUE == logger.log_file) {
 		OutputDebugStringW(L"log_work: INVALID_HANDLE_VALUE == logger.log_file!\n");
@@ -91,6 +107,7 @@ VOID CALLBACK log_work(ULONG_PTR param)
 	}
 
 	size_t bulk_used = 0;
+	lock_logger();
 	for (; logger.read != logger.write; )
 	{
 		const auto& entry = logger.buffer[logger.read];
@@ -124,6 +141,7 @@ VOID CALLBACK log_work(ULONG_PTR param)
 		bulk_used += static_cast<size_t>(len);
 		logger.read = ring_next(logger.read);
 	}
+	unlock_logger();
 
 	if (0 == bulk_used)
 		return;
@@ -153,10 +171,12 @@ static inline void log_message(Log_level level, const char* message) noexcept
 		return;
 	}
 
+	lock_logger();
 	const auto current = logger.write;
 	const size_t next = ring_next(current);
 
 	if (next == logger.read) {
+		unlock_logger();
 		OutputDebugStringW(L"Logger buffer full, dropping log message\n");
 		return;
 	}
@@ -169,6 +189,7 @@ static inline void log_message(Log_level level, const char* message) noexcept
 		_TRUNCATE
 	);
 	logger.write = next;
+	unlock_logger();
 
 	//QueueUserAPC(log_work, logger.log_thread, 0);
 }
@@ -192,6 +213,10 @@ void init_log_thread() noexcept
 		CONFIG_FILEA
 	));
 
+	if (0 != GetPrivateProfileIntA("Debug", "Enable", 0, CONFIG_FILEA)) {
+		logger.log_level = Log_level::DEBUG;
+	}
+
 	if (Log_level::NONE == logger.log_level) {
 		OutputDebugStringW(L"init_log_thread: log disable!\n");
 		return;
@@ -206,6 +231,14 @@ void init_log_thread() noexcept
 		logger.log_level = MAX_LOG_LEVEL;
 	}
 
+	if (!logger.lock_initialized) {
+		if (FALSE == InitializeCriticalSectionAndSpinCount(&logger.lock, 4000)) {
+			OutputDebugStringW(L"init_log_thread: InitializeCriticalSectionAndSpinCount fail!\n");
+			return;
+		}
+		logger.lock_initialized = true;
+	}
+
 	if (!logger.timer) {
 		logger.timer = CreateWaitableTimerW(nullptr, FALSE, L"Log Interval");
 		if (!logger.timer) {
@@ -215,7 +248,7 @@ void init_log_thread() noexcept
 	}
 	if (!logger.stop_event) {
 		logger.stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-		if (!logger.timer) {
+		if (!logger.stop_event) {
 			OutputDebugStringW(L"init_log_thread: CreateEventW fail!\n");
 			return;
 		}
@@ -267,6 +300,8 @@ void stop_log() noexcept
 		return;
 	}
 
+	log_work(0);
+
 	if (logger.stop_event) {
 		SetEvent(logger.stop_event);
 	}
@@ -274,15 +309,32 @@ void stop_log() noexcept
 	if (logger.timer) {
 		CancelWaitableTimer(logger.timer);
 		CloseHandle(logger.timer);
+		logger.timer = nullptr;
 	}
 
 	if (logger.log_thread) {
 		// Wait for thread to exit
 		WaitForSingleObject(logger.log_thread, INFINITE);
 		CloseHandle(logger.log_thread);
+		logger.log_thread = nullptr;
+		logger.log_thread_id = 0;
 	}
 
 	if (logger.log_file != INVALID_HANDLE_VALUE) {
 		CloseHandle(logger.log_file);
+		logger.log_file = INVALID_HANDLE_VALUE;
 	}
+
+	if (logger.stop_event) {
+		CloseHandle(logger.stop_event);
+		logger.stop_event = nullptr;
+	}
+
+	if (logger.lock_initialized) {
+		DeleteCriticalSection(&logger.lock);
+		logger.lock_initialized = false;
+	}
+
+	log_debug = log_any_noop;
+	log_info = log_any_noop;
 }

@@ -3,6 +3,7 @@
 #include "IAT_hook.h"
 #include "cef_url_hook.h"
 #include "cef_zip_reader_hook.h"
+#include "memory.h"
 
 static FARPROC WINAPI GetProcAddress_hook(HMODULE hModule, LPCSTR lpProcName)
 {
@@ -62,14 +63,9 @@ bool libcef_IAT_hook_GetProcAddress(HMODULE spotify_dll_handle) noexcept
 				PROC* func = reinterpret_cast<PROC*>(&thunk->u1.Function);
 
 				if (*func == reinterpret_cast<PROC>(GetProcAddress)) {
-					DWORD oldProtect;
-					VirtualProtect(func, sizeof(PROC), PAGE_READWRITE, &oldProtect);
-
 					GetProcAddress_orig = reinterpret_cast<GetProcAddress_t>(*func);
-					*func = reinterpret_cast<PROC>(GetProcAddress_hook);
-
-					VirtualProtect(func, sizeof(PROC), oldProtect, &oldProtect);
-					return true;
+					PROC hook = reinterpret_cast<PROC>(GetProcAddress_hook);
+					return patch_instruction(func, &hook, sizeof(hook));
 				}
 			}
 		}

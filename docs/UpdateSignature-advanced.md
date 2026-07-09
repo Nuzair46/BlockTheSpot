@@ -1,213 +1,447 @@
-# BlockTheSpot how to create the signatures for advanced users.
+# BlockTheSpot Signature Patching Tutorial
 
-This guide documents the workflow for rebuilding, launching, debugging, and updating stale signature-based patches in this repo.
+This document explains how BlockTheSpot patches Spotify right now. It is a
+practical workflow for adding or updating patch-file signatures, verifying that
+they match, and debugging failures.
 
-It is written around the findings from the Spotify `1.2.86.502.g8cd7fb22` desktop build that was inspected on April 18, 2026.
+## Patch Types
 
-## Scope
+BlockTheSpot has three main patch surfaces:
 
-This guide covers:
+- Native `Spotify.dll` byte patches.
+- JavaScript/CSS buffer patches inside files read from Spotify's CEF zip reader.
+- URL blocking and libcef offset configuration.
 
-- getting the project to build in Visual Studio
-- launching Spotify under the debugger with the correct working directory
-- reading the existing logs
-- identifying whether the native hooks are still healthy
-- dumping the intercepted JS files in a `Debug|x64` build
-- rebuilding stale `config.ini` signatures
-- maintaining non-restricted telemetry/metrics-related signatures
-
-This guide does not document restricted-feature or upsell-removal patching.
-
-## Current Findings
-
-From the current debug logs, the following pieces are already working:
-
-- `blockthespot.dll` loads and `Loader initialized successfully.` is logged
-- the developer byte patch still matches
-- `cef_urlrequest_create` hooking is live
-- `cef_zip_reader_create` / `read_file` hooking is live
-- `xpui-snapshot.js` and `xpui-pip-mini-player.js` are still being intercepted
-- the current `LIBCEF` offsets are still valid for this build
-
-The stale signature failures that were observed are:
-
-- `miniplayer_begin`
-- `skipsentry`
-- `disable_metric`
-
-For safe maintenance work, focus on the telemetry/metrics-related patterns (`skipsentry`, `disable_metric`) and the general porting workflow.
+Native patches are applied after `Spotify.dll` is loaded. Buffer patches are
+applied when Spotify reads frontend assets such as `xpui-pip-mini-player.js` or
+route bundles.
 
 ## Files That Matter
 
+- `Hook/spotify_native_patch.cpp`
+- `Hook/spotify_native_patch.h`
 - `Hook/cef_zip_reader_hook.cpp`
 - `Hook/cef_url_hook.cpp`
-- `Hook/developer_mode.cpp`
+- `Hook/config.h`
 - `Hook/pattern.cpp`
+- `Hook/memory.cpp`
 - `Hook/loader.cpp`
 - `Hook/loader.h`
 - `Loader/dllmain.cpp`
 - `config.ini`
+- `patches/native.ini`
+- `patches/frontend.ini`
 
-## Prerequisites
+## Build Setup
 
 Install or verify:
 
-- Visual Studio with Desktop development with C++
-- x64/x86 C++ build tools
-- MASM support
+- Visual Studio with Desktop development with C++.
+- x64 C++ build tools.
+- MASM support for `Loader/chrome_dll.asm`.
 
-This repo uses MASM in `Loader/chrome_dll.asm`, so a partial C++ install is not enough.
-
-If Visual Studio reports that `v145` build tools are missing, you have two supported options:
-
-1. Install the `v145` toolset.
-2. Retarget both projects to the toolset you do have installed.
-
-If you retarget, make sure you retarget both:
-
-- `Hook/Hook.vcxproj`
-- `Loader/Loader.vcxproj`
-
-## Build Configuration
-
-Use:
-
-- `Debug|x64` while debugging
-- `Release|x64` only after the signatures are stable
-
-Do not use `Win32` for this workflow.
-
-## Spotify Folder Layout
+Use `Debug|x64` while inspecting signatures and `Release|x64` after the
+signatures are stable. Do not use `Win32` for this workflow.
 
 Before launching Spotify under the debugger, the Spotify folder should contain:
 
 - `Spotify.exe`
 - `chrome_elf.dll` from this repo
-- `chrome_elf_required.dll` (the original Spotify DLL renamed)
+- `chrome_elf_required.dll`, which is the original Spotify DLL renamed
 - `blockthespot.dll`
 - `blockthespot.pdb`
 - `config.ini`
+- `patches/native.ini`
+- `patches/frontend.ini`
 
-The repo loads files with relative paths such as `./blockthespot.dll`, `./chrome_elf_required.dll`, and `./config.ini`, so the working directory matters.
+The loader uses relative paths such as `./blockthespot.dll`,
+`./chrome_elf_required.dll`, `./config.ini`, and `./patches/*.ini`, so the
+working directory must be the Spotify install folder.
 
-## Launching Spotify From Visual Studio
-
-### 1. Set the startup project
+## Launching From Visual Studio
 
 Set `Hook` as the startup project.
 
-### 2. Configure debugging
-
-Open `Hook` project properties and set:
+In project properties, set:
 
 - `Configuration` = `Debug`
 - `Platform` = `x64`
-- `Configuration Properties -> Debugging -> Command` = full path to `Spotify.exe`
-- `Configuration Properties -> Debugging -> Working Directory` = Spotify install folder
+- `Configuration Properties -> Debugging -> Command` = full path to
+  `Spotify.exe`
+- `Configuration Properties -> Debugging -> Working Directory` = Spotify
+  install folder
 - `Configuration Properties -> Debugging -> Command Arguments` = empty
 - `Configuration Properties -> Debugging -> Debugger Type` = `Native Only`
 
-### 3. Launch
-
-Press `F5`.
-
-If Visual Studio says `blockthespot.dll is not a valid Win32 application`, that means it is trying to launch the DLL directly instead of launching `Spotify.exe`. Recheck the `Command` and `Working Directory` settings.
+If Visual Studio reports that `blockthespot.dll is not a valid Win32
+application`, it is trying to launch the DLL directly. Set `Command` to
+`Spotify.exe`.
 
 ## Logging
 
-Set in `config.ini`:
+For patch work, use debug logging:
 
 ```ini
 [Log]
 Level=2
 ```
 
-This gives the most useful signal while porting.
-
-## How To Read The Current Logs
-
-These messages mean the native side is healthy:
+Useful healthy log lines include:
 
 - `init_log_thread: initialized`
-- `do_hook_developer: patch applied.`
+- `Developer: patch applied.`
+- `ProductStatePrefetchKeys: patch applied.` when enabled
 - `do_hook_cef_url: patch applied.`
 - `do_hook_cef_zip_reader: patch applied.`
 - `Loader initialized successfully.`
 
-These messages are expected debug noise from the current patch parser:
+`signature_2 empty, stop processing` is expected for patch sections that only
+define `Signature_1`.
 
-- `signature_2 empty, stop processing`
+`FindPattern failed.` means the configured signature did not match the buffer or
+native `.text` section being scanned.
 
-Those messages are not, by themselves, failures.
+`signature matched more than once.` is a native-patch failure. Extend the
+signature until it identifies exactly one `.text` location.
 
-The messages that matter are:
+`patch range exceeds signature` means `Offset + len(Value)` does not fit inside
+the parsed signature bytes.
 
-- `FindPattern failed.`
+## Config Layout
 
-That means the current signature no longer matches the new JS buffer.
+`config.ini` is the small runtime config. It contains logging, debug, URL block,
+CEF offset, crashpad, Spotify version, and patch-file path settings:
 
-## Debug-Only JS Dump Helper
+```ini
+[Spotify]
+Version=1.2.93.667
 
-The current `Debug|x64` build contains a helper in `Hook/cef_zip_reader_hook.cpp` that writes:
+[PatchFiles]
+Native=./patches/native.ini
+Frontend=./patches/frontend.ini
+```
+
+The release workflow uses `[Spotify] Version` for the generated zip name,
+release tag default, and release title.
+
+Native `Spotify.dll` byte patch signatures live in `patches/native.ini`.
+
+JavaScript and CSS buffer patch signatures live in `patches/frontend.ini`.
+
+## Runtime Flow
+
+The high-level loader path is:
+
+```text
+Loader/dllmain.cpp
+  -> queues bts_main()
+
+Hook/loader.cpp
+  bts_main()
+    -> initializes logging
+    -> loads spotify.dll
+    -> loads libcef.dll
+    -> hook_spotify_native_patches(spotify_dll_handle)
+    -> libcef_IAT_hook_GetProcAddress(spotify_dll_handle)
+    -> hook_cef_url(libcef_dll_handle)
+    -> hook_cef_reader(libcef_dll_handle)
+    -> modify_css_init()
+```
+
+The native patch path is:
+
+```text
+Hook/spotify_native_patch.cpp
+  hook_spotify_native_patches()
+    -> reads numbered patch section names from [NativePatches]
+    -> checks each listed section's Enable value
+    -> applies enabled sections
+
+  apply_spotify_native_patch()
+    -> reads [section] Signature
+    -> parses the signature with ?? wildcards
+    -> reads [section] Value
+    -> reads [section] Offset
+    -> verifies the signature matches exactly one .text location
+    -> scans Spotify.dll .text with FindPattern()
+    -> writes Value at matched_address + Offset
+```
+
+The buffer patch path is:
+
+```text
+Hook/cef_zip_reader_hook.cpp
+  cef_zip_reader_read_file_hook()
+    -> observes the file name being read
+    -> checks [Buffer_modify] for configured files
+    -> checks the matching file section for patch section names
+    -> do_patch_buffer()
+      -> reads Signature_N / Value_N / Offset_N
+      -> scans the in-memory file buffer with FindPattern()
+      -> writes Value_N at matched_address + Offset_N
+```
+
+## Native Spotify.dll Patches
+
+Native patches are configured in `patches/native.ini` through the
+`[NativePatches]` list and one section per patch.
+
+Example:
+
+```ini
+[NativePatches]
+1=Developer
+2=ProductStatePrefetchKeys
+
+[Developer]
+Enable=1
+Signature=85 ?? 75 0B 33 ?? 84 C0 75 07 40 8A F7 EB 05 33 ?? 40 8A F2 40 88 74 24 ?? 40 8A CE E8
+Value=EB 07
+Offset=8
+
+[ProductStatePrefetchKeys]
+Enable=0
+Signature=4C 8D 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 4E 20 4C 8D 05 ?? ?? ?? ?? 48 8D 15 ?? ?? ?? ?? 8A D8 E8 ?? ?? ?? ??
+Value=B3 01
+Offset=37
+```
+
+Rules:
+
+- `[NativePatches]` is required for native patching.
+- The list is read from `1` upward and stops at the first missing number.
+- Keep the numbering contiguous.
+- A listed section with `Enable=0` is skipped.
+- A section not listed in `[NativePatches]` is ignored.
+- The current hard limit is 64 native patch sections.
+- The log prefix is the section name, for example
+  `ProductStatePrefetchKeys: patch applied.`
+
+### Native Patch Fields
+
+Each native patch section uses:
+
+```ini
+[PatchSectionName]
+Enable=1
+Signature=...
+Value=...
+Offset=...
+```
+
+`Signature` is the byte pattern to find in `Spotify.dll`'s `.text` section.
+Use `??` for wildcard bytes.
+
+`Value` is the replacement byte sequence.
+
+`Offset` is the number of bytes from the start of the matched signature to the
+first byte that should be overwritten.
+
+The patcher validates that `Value` fits inside the matched signature range and
+then calls `patch_instruction()` in `Hook/memory.cpp`, which temporarily changes
+page protection to `PAGE_EXECUTE_READWRITE`, writes the bytes, flushes the
+instruction cache, and restores the previous page protection. If changing page
+protection or restoring it fails, the patch is logged as failed.
+
+Native patch validation is intentionally strict:
+
+- `Signature` and `Value` must be present and parse to at least one byte.
+- `??` is the only wildcard form.
+- Spaces, tabs, CR, and LF are ignored while parsing.
+- `Offset + len(Value)` must fit inside the parsed `Signature`.
+- The signature must match exactly one location in `Spotify.dll`'s `.text`
+  section.
+- Parsed signature and value bytes must fit in the fixed `Modify` buffers.
+
+### Adding A Native Patch
+
+1. Find the target instruction in Ghidra.
+2. Decide the smallest safe byte replacement.
+3. Build a signature around stable nearby instructions.
+4. Wildcard relative call/jump displacements and RIP-relative addresses.
+5. Verify the signature matches exactly one intended site.
+6. Calculate `Offset` from the beginning of the signature to the patch point.
+7. Add the patch section to `patches/native.ini`.
+8. Add the section name to `[NativePatches]`.
+9. Run Spotify with `Level=2` logging and check for
+   `<section>: patch applied.`
+
+Example section:
+
+```ini
+[NativePatches]
+1=Developer
+2=ProductStatePrefetchKeys
+3=PatchFoo
+
+[PatchFoo]
+Enable=1
+Signature=48 8D 15 ?? ?? ?? ?? E8 ?? ?? ?? ?? 84 C0 74 2E
+Value=B0 01 90 90 90
+Offset=7
+```
+
+### Developer Native Patch
+
+The current `Developer` patch targets `FUN_180084614`.
+
+It changes:
+
+```text
+1800849fc  JNZ 180084a05
+```
+
+to:
+
+```text
+1800849fc  JMP 180084a05
+```
+
+The patch skips the false path and forces the same local developer-mode branch
+that Spotify normally reaches only when its account/internal conditions allow
+it.
+
+Expected log line:
+
+```text
+Developer: patch applied.
+```
+
+### ProductStatePrefetchKeys Native Patch
+
+`ProductStatePrefetchKeys` targets the ProductState `prefetch_keys` read in
+`FUN_180646410`.
+
+The replacement is:
+
+```text
+B3 01    ; MOV BL, 1
+```
+
+It overwrites the `MOV BL, AL` that stores the `prefetch_keys` result. That
+forces the prefetch policy gate true while leaving later local playback and
+offline-state checks intact.
+
+The surrounding logic chooses the mode passed to the media/playback object
+roughly as:
+
+```text
+prefetch_keys false -> mode 0
+prefetch_keys true, but missing extra local/offline conditions -> mode 1
+prefetch_keys true and local/offline conditions pass -> mode 2
+```
+
+Expected log line when enabled:
+
+```text
+ProductStatePrefetchKeys: patch applied.
+```
+
+## JavaScript And CSS Buffer Patches
+
+Buffer patches are configured in `patches/frontend.ini` in two stages:
+
+1. `[Buffer_modify]` lists frontend files to inspect.
+2. Each file section lists patch section names to apply to that file.
+
+Example:
+
+```ini
+[Buffer_modify]
+Enable=1
+1=xpui-pip-mini-player.js
+2=1602.js
+
+[xpui-pip-mini-player.js]
+1=miniplayer_begin
+2=miniplayer_end
+
+[miniplayer_begin]
+Signature_1=72 65 74 75 72 6E 28 30 2C ?? 2E 6A 73 78
+Value_1=20 6E 75 6C 6C 3B 2F 2A
+Offset_1=6
+```
+
+Rules:
+
+- `[Buffer_modify] Enable=1` must be set for buffer patching.
+- The `[Buffer_modify]` list is read from `1` upward and stops at the first
+  missing number.
+- Each file section works the same way: `1=patch_name`, `2=patch_name`, and so
+  on.
+- Each patch section can contain multiple signatures using numbered keys:
+  `Signature_1`, `Value_1`, `Offset_1`, then `Signature_2`, `Value_2`,
+  `Offset_2`.
+- The current code reads up to two signature/value/offset groups per patch
+  section.
+- The current hard limit is 10 frontend files in `[Buffer_modify]`.
+
+### Buffer Patch Fields
+
+`Signature_N` is the byte pattern to find in the in-memory frontend file buffer.
+
+`Value_N` is the replacement byte sequence.
+
+`Offset_N` is the number of bytes from the start of the matched signature to the
+first byte that should be overwritten.
+
+The buffer patcher writes directly into the already-loaded file buffer before
+Spotify consumes it.
+
+Buffer patch validation:
+
+- `Signature_N` and `Value_N` must be present and parse to at least one byte.
+- `??` is the only wildcard form.
+- Spaces, tabs, CR, and LF are ignored while parsing.
+- `Offset_N + len(Value_N)` must fit inside the parsed `Signature_N`.
+- The final write must also fit inside the target file buffer.
+- Buffer patches preserve first-match behavior. If a signature can match
+  multiple frontend locations, make it more specific unless the first match is
+  deliberately the target.
+
+## Updating A Buffer Signature
+
+Use this loop when a JavaScript or CSS signature stops matching.
+
+1. Set `[Log] Level=2`.
+2. Build `Debug|x64`.
+3. Launch Spotify from Visual Studio with the Spotify folder as working
+   directory.
+4. Use the dumped frontend files from the Spotify working folder.
+5. Search the dumped file for stable semantic text near the target code.
+6. Build a new hex signature.
+7. Wildcard unstable bytes.
+8. Recalculate `Offset_N`.
+9. Update only one patch section in `patches/frontend.ini`.
+10. Relaunch and confirm `FindPattern failed.` is gone for that section.
+
+Debug builds currently dump useful frontend files such as:
 
 - `dump_xpui-snapshot.js`
 - `dump_xpui-pip-mini-player.js`
 
-to the Spotify working folder once per launch.
+Use the dumped files instead of searching the Visual Studio Memory window.
 
-This happens before patching, so those files are the cleanest source for signature repair.
+### Choosing Stable Anchors
 
-Use those dump files instead of trying to search a huge buffer in the Visual Studio Memory window.
+Prefer:
 
-## Recommended Porting Order
+- readable API names
+- translation keys
+- stable strings
+- object field names
+- nearby call shapes that survive minifier churn
 
-### Step 1. Confirm native hooks still work
-
-Do not touch `config.ini` yet.
-
-Launch Spotify and make sure the log still shows:
-
-- the loader initialized
-- URL blocking hooks firing
-- zip-reader file names being logged
-
-If the hook layer is not healthy, stop and fix that first. A stale JS signature is much easier than a broken loader.
-
-### Step 2. Inspect the dump files
-
-Open:
-
-- `dump_xpui-snapshot.js`
-- `dump_xpui-pip-mini-player.js`
-
-Use a normal editor or a hex editor. Searching those dumped files is much easier than searching the debugger memory window.
-
-### Step 3. Pick stable anchors
-
-When rebuilding a signature:
-
-- prefer semantic tokens
-- prefer readable API names
-- prefer translation keys or function names that are likely to survive minifier churn
-
-Avoid anchoring on:
+Avoid:
 
 - hashed CSS class strings
 - very short minified identifiers such as `Tk`, `Ve`, `n`, `x_`, `as`
+- long signatures full of relative addresses or generated names
 
-For the current telemetry/metrics-related signatures, the strongest anchors seen so far are:
+### Converting Text To Hex
 
-- `buildVersion`
-- `BrowserMetrics`
-- `https`
-
-### Step 4. Convert the matching text to hex
-
-Remember:
-
-- the dumped JS text is already bytes
-- `config.ini` signatures are those same bytes written in hex
-- `??` means wildcard byte
+The dumped JS text is already bytes. Convert those bytes to hex for
+`Signature_N`.
 
 Example:
 
@@ -221,76 +455,60 @@ becomes:
 66 75 6E 63 74 69 6F 6E 20 54 6B 28 65 29 7B
 ```
 
-### Step 5. Wildcard unstable bytes
-
-Replace unstable minified names with `??`.
-
-Good example:
+Wildcard minifier-dependent bytes:
 
 ```text
-function ??(e){??.BrowserMetrics
+66 75 6E 63 74 69 6F 6E 20 ?? ?? 28 65 29 7B
 ```
 
-Bad example:
+### Recalculating Offsets
 
-```text
-function Tk(e){$y.BrowserMetrics
-```
-
-The second version is too tied to one minifier pass.
-
-### Step 6. Recalculate the offset
-
-`Offset_1` is the number of bytes from the start of the matched signature to the first byte that should be overwritten.
+`Offset_N` is always relative to the start of the matched signature.
 
 The patching flow is:
 
 1. `FindPattern` locates the start of the match.
-2. `Offset_1` moves from that start to the exact patch point.
-3. `Value_1` is written there.
+2. `Offset_N` moves from that start to the exact patch point.
+3. `Value_N` is written there.
 
-Do not blindly reuse an old offset after changing the signature shape.
+Do not reuse a previous offset after changing the signature prefix. If the
+start of the signature moved, the offset probably moved too.
 
-If the old prefix disappeared, the old offset is probably wrong even if the semantic target is the same.
+## URL Blocking
 
-## Practical Workflow For `skipsentry`
+URL blocking is configured in `[URL_block]`:
 
-1. Search `dump_xpui-snapshot.js` for `buildVersion`.
-2. Confirm the surrounding code still leads into a reporting call with an `https` URL.
-3. Build a new signature anchored on that stable tail instead of the old stale function header.
-4. Recalculate the offset from the new signature start.
-5. Re-run and check whether `FindPattern failed` disappears for `skipsentry`.
+```ini
+[URL_block]
+Enable=1
+1=/ads/
+2=/ad-logic/
+3=/gabo-receiver-service/
+4=/desktop-update/
+```
 
-Notes:
+The URL hook checks these substrings against request URLs and blocks matching
+requests.
 
-- The old `skipsentry` prefix `function ??(){if(??()){...` no longer matches the current code shape.
-- The stable part that survived is the `buildVersion` plus reporting-call region.
+## Libcef Offsets
 
-## Practical Workflow For `disable_metric`
+Libcef vtable offsets are configured in `[LIBCEF]`:
 
-1. Search `dump_xpui-snapshot.js` for `BrowserMetrics`.
-2. Copy a stable chunk around the metrics call.
-3. Convert that chunk to hex.
-4. Wildcard minified identifiers.
-5. Update `Signature_1`.
-6. Recalculate `Offset_1` if the signature start moved.
-7. Re-run and confirm the pattern now matches.
+```ini
+[LIBCEF]
+Block_crashpad=1
+CEF_REQUEST_GET_URL_OFFSET=48
+CEF_ZIP_READER_GET_READ_FILE_OFFSET=112
+CEF_ZIP_READER_GET_FILE_NAME_OFFSET=72
+```
 
-## Practical Workflow For `miniplayer_begin`
-
-The general process is the same:
-
-1. Search `dump_xpui-pip-mini-player.js`.
-2. Anchor on stable semantic text rather than hashed class names.
-3. Rebuild the signature and recalculate the offset.
-
-This guide intentionally stops at the general maintenance pattern and does not document restricted-feature or upsell-removal patching.
+If CEF hooks stop working after a Spotify/libcef update, verify these offsets
+before debugging individual signatures.
 
 ## Visual Studio Breakpoint Tips
 
-If a parameter like `patch_name` is hard to inspect in `do_patch_buffer`, move one frame earlier.
-
-Use a breakpoint on the call site in `patch_file`:
+For buffer patches, a useful breakpoint is the `do_patch_buffer()` call site in
+`patch_file()`:
 
 ```cpp
 do_patch_buffer(file_name, patch_name, buffer, bufferSize);
@@ -298,11 +516,11 @@ do_patch_buffer(file_name, patch_name, buffer, bufferSize);
 
 At that point:
 
-- `patch_name` is a real local array
-- `file_name` is still visible
-- `buffer` and `bufferSize` are easy to inspect in `Locals`
+- `patch_name` is a local array.
+- `file_name` identifies the frontend file.
+- `buffer` and `bufferSize` identify the memory range being scanned.
 
-Conditional breakpoint examples:
+Conditional breakpoint example:
 
 ```cpp
 file_name != nullptr &&
@@ -311,78 +529,107 @@ strcmp(file_name, "xpui-snapshot.js") == 0 &&
 strcmp(patch_name, "disable_metric") == 0
 ```
 
-Remember:
+Use `strcmp(...) == 0` for `const char*` comparisons.
 
-- `file_name == "xpui-snapshot.js"` is wrong for `const char*`
-- use `strcmp(...) == 0`
+For native patches, break in `apply_spotify_native_patch()` and inspect:
+
+- `section`
+- `modify.signature`
+- `modify.mask`
+- `modify.value`
+- `modify.offset`
+- `address`
 
 ## Troubleshooting
 
-### `v145` toolset cannot be found
+### Build Toolset Missing
 
-Either:
+If Visual Studio reports that a platform toolset cannot be found, install that
+toolset or retarget both projects:
 
-- install `v145`
-- or retarget the projects to the installed toolset
+- `Hook/Hook.vcxproj`
+- `Loader/Loader.vcxproj`
 
-### `blockthespot.dll is not a valid Win32 application`
-
-Visual Studio is trying to run the DLL directly.
-
-Fix:
-
-- set `Command` to `Spotify.exe`
-- set the working directory to the Spotify folder
-- keep the platform on `x64`
-
-### The debugger launches Spotify but hooks do not work
+### Spotify Launches But Hooks Do Not Work
 
 Check:
 
-- `chrome_elf.dll` from this repo is in the Spotify folder
-- the original DLL was renamed to `chrome_elf_required.dll`
-- `blockthespot.dll` and `config.ini` are in the same folder
-- Visual Studio is launching with the Spotify folder as working directory
+- `chrome_elf.dll` from this repo is in the Spotify folder.
+- The original DLL was renamed to `chrome_elf_required.dll`.
+- `blockthespot.dll` is in the Spotify folder.
+- `config.ini` is in the Spotify folder.
+- The `patches` folder is in the Spotify folder.
+- `patches/native.ini` and `patches/frontend.ini` exist, or `[PatchFiles]`
+  points to the correct replacement paths.
+- Visual Studio is using the Spotify folder as working directory.
+- The process is the main Spotify process, not a child process with `--type=`.
 
-### The Memory window is too hard to search
+### Native Patch Does Not Apply
 
-Use the dump files instead.
+Check:
 
-That is the recommended workflow now.
+- `[PatchFiles] Native` points to the native patch file.
+- The section is listed in `[NativePatches]`.
+- The numbering in `[NativePatches]` is contiguous.
+- The section has `Enable=1`.
+- `Signature`, `Value`, and `Offset` are present.
+- The signature matches the current `Spotify.dll`.
+- The signature does not match more than one `.text` location.
+- The patch offset lands on the intended instruction.
+- `Offset + len(Value)` fits inside the signature.
 
-### `signature_2 empty` spam
+### Buffer Patch Does Not Apply
 
-That is expected with the current `do_patch_buffer` parser and single-signature patch sections.
+Check:
 
-Focus on whether `FindPattern failed` is still appearing.
+- `[PatchFiles] Frontend` points to the frontend patch file.
+- `[Buffer_modify] Enable=1`.
+- The frontend file is listed in `[Buffer_modify]`.
+- The patch section is listed under the file section.
+- The patch section has `Signature_N`, `Value_N`, and `Offset_N`.
+- The signature matches the dumped frontend file.
+- The offset still points to the intended patch point.
+- `Offset_N + len(Value_N)` fits inside the signature and file buffer.
+
+### Memory Window Is Hard To Search
+
+Use the dumped frontend files from disk. That is the fastest workflow for JS and
+CSS signatures.
 
 ## Verification Checklist
 
-Before moving back to `Release|x64`, verify:
+Before shipping a signature update:
 
-- the project builds cleanly
-- Spotify launches from Visual Studio
-- the native hook layer initializes successfully
-- URL blocking still logs as expected
-- `dump_xpui-snapshot.js` and `dump_xpui-pip-mini-player.js` are written in `Debug|x64`
-- the stale signature you updated no longer logs `FindPattern failed`
+- Build `Debug|x64`.
+- Launch Spotify from Visual Studio.
+- Confirm `Loader initialized successfully.`
+- Confirm native patch sections log `<section>: patch applied.`
+- Confirm CEF URL and zip-reader hooks initialize.
+- Confirm dumped frontend files are written when using debug helpers.
+- Confirm updated buffer sections no longer log `FindPattern failed.`
+- Build `Release|x64`.
 
-Only after that should you:
+For native patches, also verify the signature against the target DLL before
+committing the patch file. A signature that matches multiple locations is not
+safe unless each location is intentionally patchable with the same bytes.
 
-1. switch to `Release|x64`
-2. copy fresh release DLLs to the Spotify folder
-3. reduce log level back down if desired
+## Summary Workflow
 
-## Summary
+For native patches:
 
-The shortest reliable loop is:
+1. Locate the target instruction in Ghidra.
+2. Build a unique signature.
+3. Choose replacement bytes.
+4. Calculate `Offset`.
+5. Add the section to `patches/native.ini` and list it in `[NativePatches]`.
+6. Verify logs and behavior.
 
-1. build `Debug|x64`
-2. launch Spotify from Visual Studio with the Spotify folder as working directory
-3. inspect logs
-4. open the dumped JS files from disk
-5. rebuild one stale signature at a time
-6. recalculate the offset from the new signature start
-7. repeat until `FindPattern failed` disappears for the target section
+For frontend buffer patches:
 
-Do not try to fix multiple stale signatures at once.
+1. Dump the current frontend file.
+2. Find stable nearby anchors.
+3. Convert the signature to hex.
+4. Wildcard unstable bytes.
+5. Recalculate `Offset_N`.
+6. Update one `patches/frontend.ini` section at a time.
+7. Relaunch and check logs.

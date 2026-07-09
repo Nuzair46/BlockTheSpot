@@ -13,10 +13,19 @@ LONG WINAPI WinVerifyTrust_hook(HWND hwnd, GUID* pgActionID, LPVOID pWVTData)
 		NULL);
 	static WINTRUST_FILE_INFO FileInfo = {
 		.cbStruct = sizeof(WINTRUST_FILE_INFO_),
-		.pcwszFilePath = ORIGINAL_CHROME_ELF_DLL, // hehehehe, hahahahhahaa
+		.pcwszFilePath = ORIGINAL_CHROME_ELF_DLL,
 		.hFile = file_handle,
 	};
+
+	if (!pWVTData) {
+		return WinVerifyTrust(hwnd, pgActionID, pWVTData);
+	}
+
 	const auto WintrustData = reinterpret_cast<WINTRUST_DATA*>(pWVTData);
+	if (!WintrustData->pFile || !WintrustData->pFile->pcwszFilePath) {
+		return WinVerifyTrust(hwnd, pgActionID, pWVTData);
+	}
+
 	auto pFileInfo = WintrustData->pFile;
 
 	wchar_t temp_buffer[MAX_PATH] = { 0 };
@@ -33,7 +42,7 @@ LONG WINAPI WinVerifyTrust_hook(HWND hwnd, GUID* pgActionID, LPVOID pWVTData)
 	}
 
 	if (0 == lstrcmpiW(L"chrome_elf.dll", file_name)) {
-		if (ERROR_SUCCESS != file_handle) {
+		if (INVALID_HANDLE_VALUE != file_handle) {
 			WintrustData->pFile = &FileInfo;
 			const auto result = WinVerifyTrust(hwnd, pgActionID, pWVTData);
 			WintrustData->pFile = pFileInfo;
