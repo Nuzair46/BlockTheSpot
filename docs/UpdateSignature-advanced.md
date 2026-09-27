@@ -175,6 +175,20 @@ ZIP `read_file` callback. Launching `blockthespot.dll` directly is invalid.
 
 ## 1.3.1.234 signature notes
 
+The About dialog patch in `xpui-desktop-modals.js` appends HTML links to
+this repository and Discord using Spotify's existing credits renderer. Its
+two writes preserve the original copyright text, typography, platform labels,
+and file length. The renderer parses HTML rather than Markdown, so links use
+`<a href="…">` tags. Repeated platform translation prefixes are factored to reserve
+space for the credits string, stored on the existing platform Map.
+
+`tools/generate_about_patch.py` is the readable source for the
+`[about_blockthespot]` section. It prints the two signatures and padded
+replacements; update that source and regenerate the section when porting.
+The minified bindings and class names are matched exactly because their values
+are used by the replacement. Tests verify the rendered credits, unchanged
+platform labels, and rollback when either signature becomes stale.
+
 The config changes are:
 
 - **Developer:** the new branch is `test r14d,r14d; jne +7`. Replacing that

@@ -16,6 +16,7 @@ BlockTheSpot focuses on the Windows desktop client and keeps the patch surface s
 - blocks ad-related requests
 - applies signature-based SPA patches through `config.ini`
 - enables Spotify's hidden developer menu
+- adds BlockTheSpot's GitHub and Discord links to **Help > About Spotify**
 
 This project is for the standard [Spotify desktop app](https://www.spotify.com/download/windows/) only. It does not support the Microsoft Store build.
 
