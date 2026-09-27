@@ -194,6 +194,9 @@ static inline bool do_patch_buffer(const char* file_name, const char* patch_name
 		memcpy(address + modify[i].offset, modify[i].value, modify[i].patch_size);
 	}
 
+	_snprintf_s(temp_buffer, SHARED_BUFFER_SIZE, _TRUNCATE,
+		"do_patch_buffer: %s %s patch applied.", file_name, patch_name);
+	log_debug(temp_buffer);
 	return true;
 }
 

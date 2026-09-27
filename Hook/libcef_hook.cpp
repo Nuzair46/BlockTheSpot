@@ -22,57 +22,7 @@ static FARPROC WINAPI GetProcAddress_hook(HMODULE hModule, LPCSTR lpProcName)
 	return GetProcAddress_orig(hModule, lpProcName);
 }
 
-// https://www.ired.team/offensive-security/code-injection-process-injection/import-adress-table-iat-hooking
 bool libcef_IAT_hook_GetProcAddress(HMODULE spotify_dll_handle) noexcept
 {
-	if (!spotify_dll_handle) return false;
-
-	if (nullptr == ImageDirectoryEntryToDataEx) {
-		OutputDebugStringW(L"libcef_IAT_hook_GetProcAddress: ImageDirectoryEntryToDataEx is null.");
-		return false;
-	}
-
-	ULONG size = 0;
-	PIMAGE_IMPORT_DESCRIPTOR imports =
-		reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(ImageDirectoryEntryToDataEx(
-			spotify_dll_handle,
-			TRUE, // image is loaded in memory
-			IMAGE_DIRECTORY_ENTRY_IMPORT,
-			&size,
-			NULL
-		));
-
-	if (nullptr == imports) {
-		return false;
-	}
-
-	for (; imports->Name; ++imports) {
-		LPCSTR dll_name = reinterpret_cast<LPCSTR>(
-			reinterpret_cast<BYTE*>(spotify_dll_handle) + imports->Name
-			);
-
-		// GetProcAddress is in kernel32
-		if (0 == lstrcmpiA(dll_name, "kernel32.dll")) {
-
-			PIMAGE_THUNK_DATA thunk = reinterpret_cast<PIMAGE_THUNK_DATA>(
-				reinterpret_cast<BYTE*>(spotify_dll_handle) + imports->FirstThunk
-				);
-
-			for (; thunk->u1.Function; ++thunk) {
-				PROC* func = reinterpret_cast<PROC*>(&thunk->u1.Function);
-
-				if (*func == reinterpret_cast<PROC>(GetProcAddress)) {
-					DWORD oldProtect;
-					VirtualProtect(func, sizeof(PROC), PAGE_READWRITE, &oldProtect);
-
-					GetProcAddress_orig = reinterpret_cast<GetProcAddress_t>(*func);
-					*func = reinterpret_cast<PROC>(GetProcAddress_hook);
-
-					VirtualProtect(func, sizeof(PROC), oldProtect, &oldProtect);
-					return true;
-				}
-			}
-		}
-	}
-	return false;
+	return hook_get_proc_address(spotify_dll_handle, GetProcAddress_hook);
 }
