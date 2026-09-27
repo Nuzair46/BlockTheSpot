@@ -8,7 +8,7 @@ inline std::wstring install_directory;
 inline std::wstring original_chrome_elf;
 inline bts::Config runtime_config;
 inline bool compatible_spotify = false;
-inline constexpr char PATCH_VERSION[] = "2.0.0";
+inline constexpr char PATCH_VERSION[] = "2.0.0-experimental";
 
 using ImageDirectoryEntryToDataEx_t = PVOID(WINAPI*)(HMODULE, BOOLEAN, USHORT, PULONG, PIMAGE_SECTION_HEADER*);
 inline ImageDirectoryEntryToDataEx_t ImageDirectoryEntryToDataEx = nullptr;

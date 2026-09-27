@@ -39,9 +39,6 @@
     <ClInclude Include="cef_zip_reader_hook.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="developer_mode.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="funct_pointer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -64,9 +61,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="WinTrust_hook.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="css_cosmetic.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -95,9 +89,6 @@
     <ClCompile Include="IAT_hook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="developer_mode.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="cef_zip_reader_hook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -107,8 +98,11 @@
     <ClCompile Include="WinTrust_hook.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="css_cosmetic.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="mod_loader.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClInclude Include="mod_loader.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\Common\mods.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="..\include\blockthespot_mod.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
 </Project>

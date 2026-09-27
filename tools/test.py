@@ -15,7 +15,9 @@ compiler = os.environ.get('CXX', 'g++')
 flags = ['-std=c++20', '-Wall', '-Wextra', '-Werror', '-g']
 if args.sanitize:
     flags += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
-for source, name in [('tests/core.cpp', 'core-tests'), ('tools/patch-tool.cpp', 'patch-tool')]:
+for source, name in [('tests/core.cpp', 'core-tests'), ('tests/mods.cpp', 'mod-tests'), ('tools/patch-tool.cpp', 'patch-tool')]:
     subprocess.run([compiler, *flags, str(root/source), '-o', str(out/name)], check=True)
 subprocess.run([str(out/'core-tests')], check=True)
+subprocess.run([str(out/'mod-tests')], check=True)
 subprocess.run([str(out/'patch-tool'), 'inspect', str(root/'config.ini')], check=True)
+subprocess.run([str(out/'patch-tool'), 'inspect-mod', str(root/'patches'/'blockthespot.ini'), '--all'], check=True)

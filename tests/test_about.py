@@ -29,7 +29,7 @@ console.log(JSON.stringify({platforms:Object.fromEntries(k),credits}));
         self.source.write_text(self.fixture, encoding='utf-8')
 
     def apply_patch(self):
-        return subprocess.run([str(ENGINE), 'apply', str(ROOT / 'config.ini'),
+        return subprocess.run([str(ENGINE), 'apply-mod', str(ROOT / 'patches' / 'blockthespot.ini'),
                                'xpui-desktop-modals.js', str(self.source), str(self.output)],
                               capture_output=True, text=True)
 
@@ -75,7 +75,7 @@ console.log(JSON.stringify({platforms:Object.fromEntries(k),credits}));
 
     def test_readable_source_matches_distributed_config(self):
         ini = configparser.ConfigParser(interpolation=None)
-        ini.read(ROOT / 'config.ini')
+        ini.read(ROOT / 'patches' / 'blockthespot.ini')
         for i, (signature, value) in enumerate(patches(), 1):
             self.assertEqual(bytes.fromhex(ini['about_blockthespot'][f'Signature_{i}']), signature)
             self.assertEqual(bytes.fromhex(ini['about_blockthespot'][f'Value_{i}']), value)

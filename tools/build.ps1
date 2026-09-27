@@ -57,6 +57,23 @@ try {
         Compile 'core-tests' @((Join-Path $root 'tests\core.cpp'))
         & "$out\core-tests.exe"
         if ($LASTEXITCODE) { throw 'Core tests failed.' }
+        Compile 'mod-tests' @((Join-Path $root 'tests\mods.cpp'))
+        & "$out\mod-tests.exe"
+        if ($LASTEXITCODE) { throw 'Portable mod tests failed.' }
+        $mods = Join-Path $out 'mods'
+        New-Item -ItemType Directory -Force $mods | Out-Null
+        foreach ($entry in @(@('mod-fixture', 'mod_fixture.cpp'), @('plain-mod', 'plain_mod.cpp'), @('cef-fixture', 'cef_fixture.cpp'))) {
+            & $compiler /nologo /LD /std:c++20 /EHsc /MT /W4 /WX "/Fo$out\" (Join-Path $root "tests\$($entry[1])") /link "/OUT:$mods\$($entry[0]).dll" "/IMPLIB:$mods\$($entry[0]).lib"
+            if ($LASTEXITCODE) { throw 'Mod fixture build failed.' }
+        }
+        Compile 'mod-loader-tests' @((Join-Path $root 'tests\mod_loader_windows.cpp'),
+            (Join-Path $root 'Hook\mod_loader.cpp'), (Join-Path $root 'Hook\log_thread.cpp'),
+            (Join-Path $root 'Hook\memory.cpp'), (Join-Path $root 'Hook\pattern.cpp'),
+            (Join-Path $root 'Hook\cef_zip_reader_hook.cpp'), (Join-Path $root 'Hook\cef_url_hook.cpp')) @('/link', 'version.lib')
+        foreach ($mode in @('enabled', 'disabled', 'unsupported', 'bundled', 'bundled-css', 'bundled-disabled', 'bundled-missing', 'renamed', 'empty')) {
+            & "$out\mod-loader-tests.exe" $mods $mode "$root\out\x64\$Configuration\patches"
+            if ($LASTEXITCODE) { throw "Windows mod-loader tests failed ($mode)." }
+        }
         Compile 'windows-tests' @((Join-Path $root 'tests\windows.cpp'), (Join-Path $root 'Hook\log_thread.cpp')) @('/link', 'version.lib')
         & "$out\windows-tests.exe" "$out\logs"
         if ($LASTEXITCODE) { throw 'Windows tests failed.' }
@@ -68,12 +85,14 @@ try {
             Set-Content (Join-Path $fixture 'original.def') -Encoding ASCII
         & $compiler /nologo /LD /EHsc /MT "/Fo$out\" (Join-Path $root 'tests\forward_original.cpp') /link "/DEF:$fixture\original.def" "/OUT:$fixture\chrome_elf_required.dll" "/IMPLIB:$fixture\chrome_elf_required.lib"
         if ($LASTEXITCODE) { throw 'Forwarding fixture build failed.' }
-        Copy-Item "$root\out\x64\$Configuration\chrome_elf.dll", "$root\out\x64\$Configuration\blockthespot.dll" $fixture -Force
+        Copy-Item "$root\out\x64\$Configuration\chrome_elf.dll", "$root\out\x64\$Configuration\bts-loader.dll" $fixture -Force
         Compile 'forwarding-tests' @((Join-Path $root 'tests\forwarding.cpp'))
         & "$out\forwarding-tests.exe" $fixture
         if ($LASTEXITCODE) { throw 'Export forwarding tests failed.' }
         & "$out\patch-tool.exe" inspect "$root\config.ini"
         if ($LASTEXITCODE) { throw 'Repository config failed validation.' }
+        & "$out\patch-tool.exe" inspect-mod "$root\patches\blockthespot.ini" --all
+        if ($LASTEXITCODE) { throw 'Bundled mod config failed validation.' }
     }
 } finally {
     $env:INCLUDE = $previousInclude

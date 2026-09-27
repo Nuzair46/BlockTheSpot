@@ -69,7 +69,8 @@ jobs:
           }
 
           $releaseBody = @"
-          Manual release built from master.
+          Mod-loader release built from master. Extract BlockTheSpot.zip to preserve its patches/ layout.
+          The stable v1 installer does not support this package format; follow README.md.
 
           Spotify version: $spotifyVersion
           Commit: $env:GITHUB_SHA
@@ -83,7 +84,7 @@ jobs:
           $releaseBody | Set-Content -Path $bodyPath -NoNewline
           "body_path=$bodyPath" >> $env:GITHUB_OUTPUT
 
-      - name: Build and test both Release DLLs
+      - name: Build and test loader and bundled mod
         shell: pwsh
         run: ./tools/build.ps1
 
@@ -94,12 +95,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item out/x64/Release/blockthespot.dll dist/blockthespot.dll -Force
-          Copy-Item out/x64/Release/chrome_elf.dll dist/chrome_elf.dll -Force
-          Copy-Item config.ini dist/config.ini -Force
-          Copy-Item settings.example.ini dist/settings.example.ini -Force
-          Copy-Item out/tools/patch-tool.exe dist/patch-tool.exe -Force
-          Compress-Archive out/x64/Release/*.pdb dist/symbols.zip -Force
+          ./tools/package.ps1 -Destination out/release-package
+          Compress-Archive out/release-package/* dist/BlockTheSpot.zip -Force
+          New-Item -ItemType Directory -Force out/symbols/patches | Out-Null
+          Copy-Item out/x64/Release/chrome_elf.pdb, out/x64/Release/bts-loader.pdb out/symbols/
+          Copy-Item out/x64/Release/patches/blockthespot.pdb out/symbols/patches/
+          Compress-Archive out/symbols/* dist/symbols.zip -Force
           Get-ChildItem dist -File | Sort-Object Name | ForEach-Object {
             "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
           } | Set-Content dist/SHA256SUMS.txt -Encoding ASCII
@@ -113,10 +114,6 @@ jobs:
           draft: ${{ inputs.draft }}
           prerelease: ${{ inputs.prerelease }}
           files: |
-            dist/blockthespot.dll
-            dist/chrome_elf.dll
-            dist/config.ini
-            dist/settings.example.ini
-            dist/patch-tool.exe
+            dist/BlockTheSpot.zip
             dist/symbols.zip
             dist/SHA256SUMS.txt

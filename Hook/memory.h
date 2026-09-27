@@ -1,3 +1,4 @@
 #pragma once
+#include "../Common/patch.h"
 #include "loader.h"
-bool patch_instruction(void* address, const void* value, size_t size) noexcept;
+bool patch_instructions(void* base, size_t size, std::span<const bts::Write> writes) noexcept;

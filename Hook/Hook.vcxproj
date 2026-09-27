@@ -71,13 +71,13 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <TargetName>blockthespot</TargetName>
+    <TargetName>bts-loader</TargetName>
     <GenerateManifest>false</GenerateManifest>
     <IntDir>$(SolutionDir)temp\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
     <OutDir>$(SolutionDir)out\$(Platform)\$(Configuration)\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <TargetName>blockthespot</TargetName>
+    <TargetName>bts-loader</TargetName>
     <GenerateManifest>false</GenerateManifest>
     <IntDir>$(SolutionDir)temp\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
     <OutDir>$(SolutionDir)out\$(Platform)\$(Configuration)\</OutDir>
@@ -179,8 +179,9 @@
   <ItemGroup>
     <ClInclude Include="cef_url_hook.h" />
     <ClInclude Include="cef_zip_reader_hook.h" />
-    <ClInclude Include="css_cosmetic.h" />
-    <ClInclude Include="developer_mode.h" />
+    <ClInclude Include="mod_loader.h" />
+    <ClInclude Include="..\Common\mods.h" />
+    <ClInclude Include="..\include\blockthespot_mod.h" />
     <ClInclude Include="..\Common\patch.h" />
     <ClInclude Include="..\Common\config.h" />
     <ClInclude Include="..\Common\url.h" />
@@ -199,8 +200,7 @@
   <ItemGroup>
     <ClCompile Include="cef_url_hook.cpp" />
     <ClCompile Include="cef_zip_reader_hook.cpp" />
-    <ClCompile Include="css_cosmetic.cpp" />
-    <ClCompile Include="developer_mode.cpp" />
+    <ClCompile Include="mod_loader.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="IAT_hook.cpp" />
     <ClCompile Include="libcef_hook.cpp" />

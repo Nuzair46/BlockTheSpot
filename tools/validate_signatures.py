@@ -34,44 +34,49 @@ def run(engine, *args, check=True):
 
 
 def validate(config, spotify, engine, dump_dir=None):
-    info = run(engine, 'inspect', config)
+    info = run(engine, 'inspect-mod', config, '--all')
     files = [line.split('\t', 1)[1] for line in info.stdout.splitlines() if line.startswith('FILE\t')]
+    natives = [line.split('\t')[1] for line in info.stdout.splitlines() if line.startswith('NATIVE\t')]
+    styles = [line.split('\t')[1:] for line in info.stdout.splitlines() if line.startswith('STYLE\t')]
     print(info.stdout.strip())
     with tempfile.TemporaryDirectory(prefix='bts-validate-') as temp:
         work = Path(temp)
         source, output = work/'input', work/'output'
-        native, _ = text_section(spotify/'Spotify.dll')
-        source.write_bytes(native)
-        print(run(engine, 'apply', config, 'Developer', source, output).stdout.strip())
+        for module in natives:
+            native, _ = text_section(spotify/module)
+            source.write_bytes(native)
+            print(run(engine, 'apply-mod', config, module, source, output, '--all').stdout.strip())
         with zipfile.ZipFile(spotify/'Apps'/'xpui.spa') as archive:
             for filename in files:
                 clean = archive.read(filename)
                 source.write_bytes(clean)
-                print(run(engine, 'apply', config, filename, source, output).stdout.strip())
+                print(run(engine, 'apply-mod', config, filename, source, output, '--all').stdout.strip())
                 patched = output.read_bytes()
                 if len(clean) != len(patched):
                     raise ValueError(f'{filename}: byte length changed')
-                check = subprocess.run(['node', '--check'], input=patched, capture_output=True)
-                if check.returncode:
-                    raise ValueError(f'{filename}: {check.stderr.decode()}')
-                print(f'{filename}: JavaScript syntax passed')
+                if filename.endswith('.js'):
+                    check = subprocess.run(['node', '--check'], input=patched, capture_output=True)
+                    if check.returncode:
+                        raise ValueError(f'{filename}: {check.stderr.decode()}')
+                    print(f'{filename}: JavaScript syntax passed')
                 if dump_dir:
                     dump_dir.mkdir(parents=True, exist_ok=True)
                     (dump_dir/filename).write_bytes(clean)
-            eligible = []
-            for filename in archive.namelist():
-                if not filename.endswith('.css'):
-                    continue
-                clean = archive.read(filename)
-                source.write_bytes(clean)
-                result = run(engine, 'apply', config, 'Homepage_vbar', source, output, check=False)
-                if result.returncode == 0:
-                    eligible.append(filename)
-                    if len(clean) != len(output.read_bytes()):
-                        raise ValueError('CSS byte length changed')
-            if len(eligible) != 1:
-                raise ValueError(f'Expected one eligible CSS file, found {eligible}')
-            print(f'Homepage_vbar: {eligible[0]} validated (including disabled option)')
+            for target, extension in styles:
+                eligible = []
+                for filename in archive.namelist():
+                    if not filename.endswith(extension):
+                        continue
+                    clean = archive.read(filename)
+                    source.write_bytes(clean)
+                    result = run(engine, 'apply-mod', config, target, source, output, '--all', check=False)
+                    if result.returncode == 0:
+                        eligible.append(filename)
+                        if len(clean) != len(output.read_bytes()):
+                            raise ValueError('CSS byte length changed')
+                if len(eligible) != 1:
+                    raise ValueError(f'{target}: expected one eligible CSS file, found {eligible}')
+                print(f'{target}: {eligible[0]} validated (including disabled option)')
     print('All signatures validated. Runtime status is reported in blockthespot-status.txt.')
 
 
@@ -79,7 +84,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('spotify_dir', type=Path)
-    parser.add_argument('--config', type=Path, default=root/'config.ini')
+    parser.add_argument('--config', type=Path, default=root/'patches'/'blockthespot.ini')
     parser.add_argument('--engine', type=Path)
     parser.add_argument('--dump-dir', type=Path, help='write clean configured JS files for signature maintenance')
     args = parser.parse_args()

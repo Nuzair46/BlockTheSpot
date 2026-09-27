@@ -14,8 +14,9 @@ x64 libraries and resource tools. MASM is no longer needed.
 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Both DLLs must be installed together. `out/x64/Release` contains `chrome_elf.dll`,
-`blockthespot.dll`, and their PDBs. `out/tools` contains `patch-tool.exe` and test
+`out/x64/Release` contains the matching `chrome_elf.dll` and `bts-loader.dll`
+pair, plus their PDBs. Its `patches` subfolder contains the bundled
+`blockthespot.dll` mod and `blockthespot.ini`. Keep this directory layout. `out/tools` contains `patch-tool.exe` and test
 executables. Use `-Configuration Debug` for native debugging. `-SdkRoot` accepts
 a complete SDK tree with matching `Include`, `Lib`, and `bin` version directories.
 An incomplete C++ installation produces an actionable error before compilation.
@@ -37,8 +38,10 @@ health reports, and argument forwarding through the actual built proxy DLL.
 
 - `Common/patch.h`: portable parser, unique-match scanner, write planning, and
   transactional application. The DLL and offline tool compile this same code.
-- `Common/config.h`: one INI parser and configuration model. Runtime reads the
-  pack and optional preferences once, before installing CEF callbacks.
+- `Common/config.h`: INI parser and host configuration. The host reads root
+  `config.ini` once before loading mods.
+- `Mods/BlockTheSpot/blockthespot.cpp`: bundled mod; reads its companion INI and
+  registers its patch pack through the same C API available to other DLLs.
 - `Loader/chrome_elf.def`: native Windows export forwarders to the original
   `chrome_elf_required.dll`. No assembly trampoline alters registers or the stack.
   See Microsoft's [EXPORTS format](https://learn.microsoft.com/en-us/cpp/build/reference/exports).
@@ -51,6 +54,9 @@ health reports, and argument forwarding through the actual built proxy DLL.
   transaction only when CEF returns the complete target file in one read.
 - `Hook/log_thread.cpp`: synchronous bounded logging and a per-feature report;
   the legacy filename remains, but there is no logging worker thread.
+- `Common/mods.h` and `Hook/mod_loader.cpp`: experimental mod discovery, INI
+  parsing, grouped write planning, and the DLL initialization API. See the
+  [mod guide](Mods.md) for the file formats and examples.
 
 Spotify 1.3.1 imports `GetProcAddress` through an API-set descriptor. The IAT
 helper searches imported function names across descriptors instead of assuming
@@ -58,10 +64,12 @@ helper searches imported function names across descriptors instead of assuming
 
 ## Pack format and preferences
 
-`config.ini` owns compatibility, signatures, URL rules, file mappings, and CEF
-ABI offsets. `settings.ini` overrides only the preferences documented in
-`settings.example.ini`; unknown preferences are rejected. Release updates must
-preserve `settings.ini`. All keys and section names are case-insensitive.
+`config.ini` owns host compatibility, logging, process handling, the global mod
+switch, and CEF ABI offsets. `patches/blockthespot.ini` owns the bundled mod's
+signatures, URL rules, file mappings, compatibility, and feature switches. Each
+DLL uses its own same-stem INI; present mods default to enabled. This branch does
+not read `settings.ini`. Preserve feature preferences when updating mod INIs,
+but use the new signature bytes. Keys and section names are case-insensitive.
 
 A signature is whitespace-separated two-digit hex bytes. `??` matches exactly
 one byte. Replacement values cannot contain wildcards. `FF` is a valid literal.
@@ -78,10 +86,11 @@ against each object's advertised structure size before access. Changing an
 offset requires inspecting the new CEF layout; bounds alone cannot prove ABI
 compatibility.
 
-All signatures for one file are matched against its original bytes. Every
+All signatures for one patch group are matched against the target's original bytes. Every
 signature must match exactly once, every write must fit, and writes must not
 overlap. Only after all checks pass are bytes changed. A failed transaction
-leaves the buffer unchanged. File length never changes. A split ZIP read is
+contributes no writes from that group; other independent mod groups may still
+apply. File length never changes. A split ZIP read is
 reported and left unchanged; buffering across reads is not implemented.
 
 URL rules are ASCII path substrings beginning with `/`. Queries and fragments
@@ -115,7 +124,7 @@ builds no longer dump scripts into Spotify's installation folder.
 ## Porting workflow
 
 1. Record the new Spotify executable version and inspect its CEF layout and
-   original Chrome ELF exports. Build and install both DLLs with matching
+   original Chrome ELF exports. Build and install the proxy/host and mod with matching
    original `chrome_elf_required.dll`. Its Chromium version must match `libcef.dll`.
 2. Inspect the clean SPA entries. Update file mappings if component files moved.
 3. Anchor signatures on meaningful translation keys, property names, or nearby
@@ -123,9 +132,11 @@ builds no longer dump scripts into Spotify's installation folder.
    matches one byte, so different identifier lengths require a revised pattern.
 4. Calculate the exact write offset and equal-length replacement. Inspect the
    intended native branch or JavaScript behavior, not just the matching text.
-5. Update `[Compatibility] Spotify` and the version comment at the top of the
-   pack after reviewing the new ABI. Run the offline validator and tests.
-6. Back up the installed patch and install both rebuilt DLLs and the pack.
+5. Update `[Compatibility] Spotify` in both root `config.ini` and the mod INI,
+   plus their version comments, after reviewing the ABI. Run the offline validator
+   and tests. The validator defaults to `patches/blockthespot.ini`.
+6. Back up the installed patch and install the rebuilt proxy/host, root config,
+   and bundled mod pair in `patches`.
    Start Spotify and check the health report while visiting Home,
    album, and miniplayer views. Validate account-specific behavior manually.
 
@@ -136,8 +147,9 @@ views and hooks are actually exercised.
 ## Runtime diagnostics and debugging
 
 All patch-owned paths are relative to the installed patch DLL, independent of
-the process working directory. Keep `config.ini`, optional `settings.ini`, both
-patch DLLs, and the original `chrome_elf_required.dll` beside `Spotify.exe`.
+the process working directory. Keep `config.ini`, `bts-loader.dll`, the proxy
+`chrome_elf.dll`, and original `chrome_elf_required.dll` beside `Spotify.exe`.
+Keep each mod and its optional same-stem INI in `patches`.
 
 `blockthespot-status.txt` includes the current update time, process ID, supported
 version, initialization state, and a row for each configured file/feature:
@@ -152,11 +164,11 @@ version, initialization state, and a row for each configured file/feature:
 | failed | Configuration, compatibility, hook, or signature error |
 
 Failures remain visible for that launch even if a later read succeeds. A report
-from an earlier PID or launch is not proof of current health. The installer checks
-release files and Spotify compatibility before patching; use the current runtime
-report to verify that a UI view loaded or a request was blocked.
+from an earlier PID or launch is not proof of current health. Use the current
+runtime report to verify that a UI view loaded or a request was blocked. The
+stable installer does not install this experimental layout.
 
-For extra diagnostics, put this in `settings.ini` and restart:
+For extra diagnostics, put this in root `config.ini` and restart:
 
 ```ini
 [Log]
@@ -171,7 +183,7 @@ written. Restore the normal log level after testing.
 For Visual Studio debugging, select x64, build Debug, and set the debugger's
 Command to the installed `Spotify.exe` with Native Only debugging. Copy the
 matching DLLs and PDBs first. Set breakpoints in `bts_main`, `bts::plan`, or the
-ZIP `read_file` callback. Launching `blockthespot.dll` directly is invalid.
+ZIP `read_file` callback. Launching a DLL directly is invalid.
 
 ## 1.3.1.234 signature notes
 
@@ -183,7 +195,7 @@ and file length. The renderer parses HTML rather than Markdown, so links use
 space for the credits string, stored on the existing platform Map.
 
 `tools/generate_about_patch.py` is the readable source for the
-`[about_blockthespot]` section. It prints the two signatures and padded
+`[about_blockthespot]` section in `patches/blockthespot.ini`. It prints the two signatures and padded
 replacements; update that source and regenerate the section when porting.
 The minified bindings and class names are matched exactly because their values
 are used by the replacement. Tests verify the rendered credits, unchanged

@@ -2,7 +2,7 @@
 #include "cef_zip_reader_hook.h"
 #include "funct_pointer.h"
 #include "log_thread.h"
-#include "css_cosmetic.h"
+#include "mod_loader.h"
 #include <atomic>
 
 namespace {
@@ -33,27 +33,25 @@ int CALLBACK read_file(void* self, void* buffer, size_t capacity) {
     }
     free_string(raw);
     if (name.empty()) return count;
-    const bts::FilePatch* target = nullptr;
-    if (runtime_config.buffers_enabled) {
-        for (const auto& file : runtime_config.files) if (file.file == name) { target = &file; break; }
-    }
-    bool css = runtime_config.css_enabled && std::string_view(name).ends_with(".css");
-    if (!target && !css) return count;
+    const auto bytes = std::span(static_cast<uint8_t*>(buffer), static_cast<size_t>(count));
+    auto groups = frontend_mod_groups(name, bytes);
+    if (groups.empty()) return count;
     // Full-file transactions cannot safely be applied after earlier chunks
     // have already been returned to CEF. Leave split reads untouched.
     using size_t_fn = int64_t(__stdcall*)(void*);
     auto get_size = get_funct_t<size_t_fn>(self, runtime_config.name_offset + sizeof(void*));
     auto tell = get_funct_t<size_t_fn>(self, runtime_config.read_offset + sizeof(void*));
     if (!get_size || !tell || get_size(self) != count || tell(self) != count) {
-        set_status(target ? name : "Homepage_vbar", "skipped", "partial ZIP read; buffer unchanged"); return count;
+        for (const auto& group : groups) set_status(group.owner, "skipped", "partial ZIP read; buffer unchanged");
+        return count;
     }
-    if (target) {
-        std::string error;
-        if (!bts::apply({static_cast<uint8_t*>(buffer), static_cast<size_t>(count)}, target->patches, error))
-            set_status(name, "failed", error);
-        else set_status(name, "applied", std::to_string(target->patches.size()) + " validated writes");
+    std::vector<bts::Write> writes;
+    auto results = bts::plan_groups(bytes, groups, writes);
+    for (const auto& write : writes) std::copy(write.value.begin(), write.value.end(), bytes.begin() + write.offset);
+    for (const auto& result : results) {
+        if (!result.error.empty()) set_status(result.owner, "failed", result.error);
+        else set_status(result.owner, "applied", "validated writes");
     }
-    if (css) css_hide_vbar(name.c_str(), buffer, static_cast<size_t>(count));
     return count;
 }
 }
@@ -76,15 +74,15 @@ void* cef_zip_reader_create_stub(void* stream) {
 }
 
 void hook_cef_reader(HMODULE libcef) noexcept {
-    enabled = compatible_spotify && (runtime_config.buffers_enabled || runtime_config.css_enabled);
-    for (const auto& target : runtime_config.files)
-        set_status(target.file, enabled && runtime_config.buffers_enabled ? "pending" : "skipped",
-            !compatible_spotify ? "unsupported Spotify version" : runtime_config.buffers_enabled ? "not loaded yet" : "disabled");
-    set_status("Homepage_vbar", enabled && runtime_config.css_enabled ? "pending" : "skipped",
-        runtime_config.css_enabled ? "waiting for matching CSS" : "disabled");
-    if (!enabled) return;
+    enabled = compatible_spotify && has_frontend_mods();
+    if (!enabled) { report_frontend_mods(false); return; }
     original_create = reinterpret_cast<create_t>(GetProcAddress(libcef, "cef_zip_reader_create"));
     free_string = reinterpret_cast<free_cef_string_t>(GetProcAddress(libcef, "cef_string_userfree_utf16_free"));
-    if (!original_create || !free_string) { enabled = false; set_status("SPA", "failed", "required CEF exports missing"); return; }
+    if (!original_create || !free_string) {
+        enabled = false;
+        report_frontend_mods(false);
+        set_status("SPA", "failed", "required CEF exports missing"); return;
+    }
+    report_frontend_mods(true);
     set_status("SPA", "ready", "waiting for ZIP reads");
 }
