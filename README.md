@@ -3,7 +3,7 @@
   <h4 align="center">A multi-purpose adblocker and skip-bypass for <strong>Spotify for Windows (64 bit)</strong></h4>
   <h5 align="center">Please support Spotify by purchasing premium</h5>
   <p align="center">
-    <a href="https://github.com/Nuzair46/BlockTheSpot/releases/latest"><img src="https://raw.githubusercontent.com/Nuzair46/BlockTheSpot-Installer/main/assets/blockthespot.png" alt="BlockTheSpot" /></a>
+    <a href="https://github.com/Nuzair46/BlockTheSpot-Installer/releases/latest"><img src="https://raw.githubusercontent.com/Nuzair46/BlockTheSpot-Installer/main/assets/blockthespot.png" alt="BlockTheSpot" /></a>
   </p>
 </center>
 
@@ -23,14 +23,28 @@ This project is for the standard [Spotify desktop app](https://www.spotify.com/d
 ## Requirements
 
 - Windows 64-bit
-- Spotify desktop client installed in `%APPDATA%\Spotify`
-- Spotify fully closed before install, update, or uninstall
+- The installer sets up the Spotify desktop client in `%APPDATA%\Spotify`
 
-## Install or update
+## Install or update (recommended)
+
+Use the [BlockTheSpot Installer](https://github.com/Nuzair46/BlockTheSpot-Installer).
+
+1. Download [BlockTheSpotInstaller.exe](https://github.com/Nuzair46/BlockTheSpot-Installer/releases/latest/download/BlockTheSpotInstaller.exe).
+2. Run it and use the recommended Spotify version.
+3. Click **Install / Patch**. The installer closes Spotify, installs the compatible
+   desktop version when needed, and applies BlockTheSpot.
+
+Run the installer again to update or repair the patch. It preserves your
+`settings.ini` preferences, including across Spotify reinstalls. On the first
+upgrade, supported preferences from an older `config.ini` move into `settings.ini`.
+**Reset BlockTheSpot settings to defaults** is optional and off by default.
 
 The bundled signature pack targets **Spotify 1.3.1.234 x64**. Other versions are
 reported as unsupported and version-sensitive patches are skipped.
 
+### Manual installation (optional)
+
+Install the compatible Spotify desktop client in `%APPDATA%\Spotify` first.
 Download the files from one [release](https://github.com/Nuzair46/BlockTheSpot/releases).
 Close Spotify completely before changing its DLLs.
 
@@ -40,14 +54,7 @@ Close Spotify completely before changing its DLLs.
    `%APPDATA%\Spotify` together.
 3. Optionally copy `settings.example.ini` to `settings.ini` and edit your
    preferences. Keep your existing `settings.ini` when updating the patch.
-4. Run the release's installation check in PowerShell:
-
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\doctor.ps1
-   ```
-
-   For another installation location, add `-SpotifyDir 'D:\Apps\Spotify'`.
-5. Start Spotify and inspect `blockthespot-status.txt` in its installation folder.
+4. Start Spotify and inspect `blockthespot-status.txt` in its installation folder.
 
 When updating only BlockTheSpot, keep `chrome_elf_required.dll` and replace the
 three patch files together. After **Spotify itself updates**, the original DLL
@@ -56,17 +63,13 @@ must come from that new Spotify build. If Spotify has restored its stock
 installing the proxy again. If you cannot identify the stock DLL, repair or
 reinstall Spotify first; do not rename the patch's proxy as the original.
 
-The separate [BlockTheSpot-Installer](https://github.com/Nuzair46/BlockTheSpot-Installer/releases)
-can automate installation. Check which patch release and Spotify version it
-supports. This repository does not update that installer's behavior.
-
 ## Preferences and troubleshooting
 
 `config.ini` is the versioned signature pack. Put personal preferences in
 `settings.ini`; missing preferences use the pack's defaults. Supported keys
 are listed in [settings.example.ini](settings.example.ini). Restart Spotify
-after changing either file. Move existing custom feature flags from `config.ini`
-to `settings.ini` before replacing the pack.
+after changing either file. For manual updates, move existing custom feature
+flags from `config.ini` to `settings.ini` before replacing the pack.
 
 `blockthespot-status.txt` reports each feature as pending, ready, active, applied,
 skipped, or failed, with an update time and process ID. A pending SPA file has
@@ -77,15 +80,20 @@ unchanged. Partial ZIP reads are skipped rather than patched across chunks.
 `blockthespot.log` records errors at the default `[Log] Level=0`. Levels `1` and
 `2` add status and debug messages. Logs omit request URLs and rotate at about
 1 MiB into `blockthespot.log.1`. The health report is written at every log level.
-If no new report appears, run `doctor.ps1` and check that all files came from the
-same release. The doctor inspects files without loading or modifying the DLLs;
-it does not replace runtime verification.
+If no new report appears, run **Install / Patch** again and check the installer's
+activity log. For manual installations, check that both patch DLLs and `config.ini`
+came from the same release and that the original DLL matches your Spotify build.
 
 If Spotify cannot start, close its remaining processes, remove the proxy
 `chrome_elf.dll`, and restore the matching original `chrome_elf_required.dll` as
 `chrome_elf.dll`. Repair Spotify if the original is missing or from another build.
 
 ## Uninstall
+
+Choose **Uninstall / Restore** in the installer. It keeps `settings.ini` so your
+preferences are available if you reinstall.
+
+To uninstall manually:
 
 1. Close Spotify completely.
 2. Remove the patch's `chrome_elf.dll`, `blockthespot.dll`, and `config.ini`.

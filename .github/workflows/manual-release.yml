@@ -98,7 +98,6 @@ jobs:
           Copy-Item out/x64/Release/chrome_elf.dll dist/chrome_elf.dll -Force
           Copy-Item config.ini dist/config.ini -Force
           Copy-Item settings.example.ini dist/settings.example.ini -Force
-          Copy-Item tools/doctor.ps1 dist/doctor.ps1 -Force
           Copy-Item out/tools/patch-tool.exe dist/patch-tool.exe -Force
           Compress-Archive out/x64/Release/*.pdb dist/symbols.zip -Force
           Get-ChildItem dist -File | Sort-Object Name | ForEach-Object {
@@ -118,7 +117,6 @@ jobs:
             dist/chrome_elf.dll
             dist/config.ini
             dist/settings.example.ini
-            dist/doctor.ps1
             dist/patch-tool.exe
             dist/symbols.zip
             dist/SHA256SUMS.txt

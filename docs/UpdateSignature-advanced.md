@@ -116,7 +116,7 @@ builds no longer dump scripts into Spotify's installation folder.
 
 1. Record the new Spotify executable version and inspect its CEF layout and
    original Chrome ELF exports. Build and install both DLLs with matching
-   original `chrome_elf_required.dll`; the doctor checks this relationship.
+   original `chrome_elf_required.dll`. Its Chromium version must match `libcef.dll`.
 2. Inspect the clean SPA entries. Update file mappings if component files moved.
 3. Anchor signatures on meaningful translation keys, property names, or nearby
    control flow. Wildcard minified bindings and CSS hashes. A wildcard still
@@ -125,8 +125,8 @@ builds no longer dump scripts into Spotify's installation folder.
    intended native branch or JavaScript behavior, not just the matching text.
 5. Update `[Compatibility] Spotify` and the version comment at the top of the
    pack after reviewing the new ABI. Run the offline validator and tests.
-6. Back up the installed patch, install both rebuilt DLLs and the pack, and run
-   `doctor.ps1`. Start Spotify and check the health report while visiting Home,
+6. Back up the installed patch and install both rebuilt DLLs and the pack.
+   Start Spotify and check the health report while visiting Home,
    album, and miniplayer views. Validate account-specific behavior manually.
 
 A syntax-valid replacement can still change the wrong behavior. Offline checks
@@ -152,9 +152,9 @@ version, initialization state, and a row for each configured file/feature:
 | failed | Configuration, compatibility, hook, or signature error |
 
 Failures remain visible for that launch even if a later read succeeds. A report
-from an earlier PID or launch is not proof of current health. The read-only
-`doctor.ps1` checks architecture, file presence, versions, and forwarded exports;
-it cannot prove that a UI view loaded or a request was blocked.
+from an earlier PID or launch is not proof of current health. The installer checks
+release files and Spotify compatibility before patching; use the current runtime
+report to verify that a UI view loaded or a request was blocked.
 
 For extra diagnostics, put this in `settings.ini` and restart:
 
