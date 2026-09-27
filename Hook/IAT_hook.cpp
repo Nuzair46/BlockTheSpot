@@ -1,11 +1,10 @@
 #include "pch.h"
 #include "IAT_hook.h"
 #include "WinTrust_hook.h"
-#include "memory.h"
 
 static FARPROC WINAPI GetProcAddress_hook(HMODULE hModule, LPCSTR lpProcName)
 {
-	if (!lpProcName || 0 == HIWORD(lpProcName))
+	if (!lpProcName || reinterpret_cast<uintptr_t>(lpProcName) <= 0xffff)
 		return GetProcAddress_orig(hModule, lpProcName);
 
 	if (0 == lstrcmpiA(lpProcName, "WinVerifyTrust")) {
@@ -17,96 +16,64 @@ static FARPROC WINAPI GetProcAddress_hook(HMODULE hModule, LPCSTR lpProcName)
 	return GetProcAddress_orig(hModule, lpProcName);
 }
 
-// https://www.ired.team/offensive-security/code-injection-process-injection/import-adress-table-iat-hooking
-bool process_IAT_hook_GetProcAddress(HMODULE module) noexcept
+// Match the imported function name, since newer Spotify builds import it
+// through api-ms-win-core-libraryloader-* rather than kernel32.dll.
+bool hook_get_proc_address(HMODULE module, GetProcAddress_t replacement) noexcept
 {
-	if (!module) return false;
-
-	if (nullptr == ImageDirectoryEntryToDataEx) {
-		OutputDebugStringW(L"process_IAT_hook_GetProcAddress: ImageDirectoryEntryToDataEx is null.");
+	if (!module || !ImageDirectoryEntryToDataEx) {
 		return false;
 	}
 
 	ULONG size = 0;
-	PIMAGE_IMPORT_DESCRIPTOR imports =
-		reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(ImageDirectoryEntryToDataEx(
-			module,
-			TRUE, // image is loaded in memory
-			IMAGE_DIRECTORY_ENTRY_IMPORT,
-			&size,
-			NULL
-		));
-
-	if (nullptr == imports) {
+	auto base = reinterpret_cast<BYTE*>(module);
+	auto imports = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(
+		ImageDirectoryEntryToDataEx(module, TRUE, IMAGE_DIRECTORY_ENTRY_IMPORT, &size, nullptr));
+	if (!imports) {
 		return false;
 	}
 
+	bool hooked = false;
 	for (; imports->Name; ++imports) {
-		LPCSTR dll_name = reinterpret_cast<LPCSTR>(
-			reinterpret_cast<BYTE*>(module) + imports->Name
-			);
-
-		// GetProcAddress is in kernel32
-		if (0 == lstrcmpiA(dll_name, "kernel32.dll")) {
-
-			PIMAGE_THUNK_DATA thunk = reinterpret_cast<PIMAGE_THUNK_DATA>(
-				reinterpret_cast<BYTE*>(module) + imports->FirstThunk
-				);
-
-			for (; thunk->u1.Function; ++thunk) {
-				PROC* func = reinterpret_cast<PROC*>(&thunk->u1.Function);
-
-				if (*func == reinterpret_cast<PROC>(GetProcAddress)) {
-					GetProcAddress_orig = reinterpret_cast<GetProcAddress_t>(*func);
-					PROC hook = reinterpret_cast<PROC>(GetProcAddress_hook);
-					return patch_instruction(func, &hook, sizeof(hook));
+		auto thunk = reinterpret_cast<PIMAGE_THUNK_DATA>(base + imports->FirstThunk);
+		auto names = imports->OriginalFirstThunk
+			? reinterpret_cast<PIMAGE_THUNK_DATA>(base + imports->OriginalFirstThunk)
+			: nullptr;
+		for (size_t i = 0; thunk[i].u1.Function; ++i) {
+			auto func = reinterpret_cast<PROC*>(&thunk[i].u1.Function);
+			bool matches = *func == reinterpret_cast<PROC>(GetProcAddress);
+			if (names) {
+				if (IMAGE_SNAP_BY_ORDINAL(names[i].u1.Ordinal)) {
+					continue;
 				}
+				auto name = reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(base + names[i].u1.AddressOfData);
+				matches = 0 == strcmp(reinterpret_cast<const char*>(name->Name), "GetProcAddress");
 			}
+			if (!matches) {
+				continue;
+			}
+			if (*func == reinterpret_cast<PROC>(replacement)) {
+				hooked = true;
+				continue;
+			}
+
+			DWORD old_protect;
+			if (!VirtualProtect(func, sizeof(PROC), PAGE_READWRITE, &old_protect)) {
+				return false;
+			}
+			// Keep the system resolver, never a previously installed hook.
+			if (!GetProcAddress_orig) {
+				GetProcAddress_orig = GetProcAddress;
+			}
+			*func = reinterpret_cast<PROC>(replacement);
+			DWORD unused;
+			if (!VirtualProtect(func, sizeof(PROC), old_protect, &unused)) return false;
+			hooked = true;
 		}
 	}
-	return false;
+	return hooked;
 }
-//
-//bool IAT_unhook_GetProcAddress() noexcept
-//{
-//	HMODULE module = GetModuleHandleW(nullptr);
-//	if (!module) return false;
-//
-//	PIMAGE_DOS_HEADER dos = reinterpret_cast<PIMAGE_DOS_HEADER>(module);
-//	PIMAGE_NT_HEADERS nt = reinterpret_cast<PIMAGE_NT_HEADERS>(
-//		reinterpret_cast<BYTE*>(module) + dos->e_lfanew
-//		);
-//
-//	IMAGE_DATA_DIRECTORY& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-//	if (!dir.VirtualAddress) return false;
-//
-//	PIMAGE_IMPORT_DESCRIPTOR imports = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(
-//		reinterpret_cast<BYTE*>(module) + dir.VirtualAddress
-//		);
-//
-//	for (; imports->Name; ++imports) {
-//		LPCSTR dll_name = reinterpret_cast<LPCSTR>(
-//			reinterpret_cast<BYTE*>(module) + imports->Name
-//			);
-//
-//		// GetProcAddress is in kernel32
-//		if (0 == lstrcmpiA(dll_name, "kernel32.dll")) {
-//
-//			PIMAGE_THUNK_DATA thunk = reinterpret_cast<PIMAGE_THUNK_DATA>(
-//				reinterpret_cast<BYTE*>(module) + imports->FirstThunk
-//				);
-//
-//			for (; thunk->u1.Function; ++thunk) {
-//				PROC* func = reinterpret_cast<PROC*>(&thunk->u1.Function);
-//
-//				if (*func == reinterpret_cast<PROC>(GetProcAddress_hook)) {
-//					DWORD oldProtect;
-//					VirtualProtect(func, sizeof(PROC), PAGE_READWRITE, &oldProtect);
-//					*func = reinterpret_cast<PROC>(GetProcAddress_orig);
-//					VirtualProtect(func, sizeof(PROC), oldProtect, &oldProtect);
-//				}
-//			}
-//		}
-//	}
-//	return true;
-//}
+
+bool process_IAT_hook_GetProcAddress(HMODULE module) noexcept
+{
+	return hook_get_proc_address(module, GetProcAddress_hook);
+}

@@ -1,40 +1,15 @@
-// dllmain.cpp : Defines the entry point for the DLL application.
 #include "pch.h"
-#include "kill_crashpad.h"
-#include "log_thread.h"
+#include "loader.h"
 
-BOOL APIENTRY DllMain( HMODULE hModule,
-                       DWORD  ul_reason_for_call,
-                       LPVOID lpReserved
-                     )
-{
-	if (DLL_PROCESS_ATTACH == ul_reason_for_call) {
-		DisableThreadLibraryCalls(hModule);
-		LPWSTR cmd = GetCommandLineW();
-#ifdef USE_APC
-		QueueUserAPC(
-			bts_main,
-			GetCurrentThread(),
-			reinterpret_cast<ULONG_PTR>(cmd)
-		);
-#else
-		bts_main(reinterpret_cast<ULONG_PTR>(cmd));
-#endif
-		// Crashpad process
-		if (cmd != NULL) {
-			if (NULL != wcsstr(cmd, L"--url=")) {
-				kill_crashpad();
-			}
-		}
-	}
-	if (DLL_PROCESS_DETACH == ul_reason_for_call) {
-		LPWSTR cmd = GetCommandLineW();
-		if (NULL == wcsstr(cmd, L"--type=") &&
-			NULL == wcsstr(cmd, L"--url=")) {
-			stop_log();
-			//remove_debug_log();
-		}
-	}
-	return TRUE;
+// A normal import dependency loads this DLL before the proxy. The anchor does
+// no work under the loader lock; initialization is deferred to the startup APC.
+extern "C" __declspec(dllexport) void bts_load_anchor() {}
+
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        patch_module = module;
+        if (!QueueUserAPC(bts_main, GetCurrentThread(), 0))
+            OutputDebugStringW(L"BlockTheSpot: unable to queue initialization\n");
+    }
+    return TRUE;
 }
-

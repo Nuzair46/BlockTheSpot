@@ -54,7 +54,6 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
-    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
   </ImportGroup>
   <ImportGroup Label="Shared">
   </ImportGroup>
@@ -130,7 +129,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <ModuleDefinitionFile>chrome_elf.def</ModuleDefinitionFile>
+      <AdditionalDependencies>$(IntDir)chrome_elf.exp;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -150,7 +149,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <ModuleDefinitionFile>chrome_elf.def</ModuleDefinitionFile>
+      <AdditionalDependencies>$(IntDir)chrome_elf.exp;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -158,7 +157,6 @@
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="chrome_elf.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -171,10 +169,17 @@
     <None Include="chrome_elf.def" />
   </ItemGroup>
   <ItemGroup>
-    <MASM Include="chrome_dll.asm" />
+    <ProjectReference Include="..\Hook\Hook.vcxproj">
+      <Project>{79c58228-78ba-43d6-a5b0-6d54971c4edb}</Project>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
+    </ProjectReference>
   </ItemGroup>
+  <!-- Generate forwarders separately: MSVC's combined export/object pass tries
+       to resolve forwarded names as local symbols when linking the hook import. -->
+  <Target Name="BuildForwarders" BeforeTargets="Link" Condition="'$(Platform)'=='x64'">
+    <Exec Command="&quot;$(VCToolsInstallDir)bin\Hostx64\x64\lib.exe&quot; /nologo /machine:x64 /def:&quot;$(ProjectDir)chrome_elf.def&quot; /out:&quot;$(IntDir)chrome_elf.lib&quot;" />
+  </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
-    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
   </ImportGroup>
 </Project>

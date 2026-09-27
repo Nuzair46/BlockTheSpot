@@ -1,0 +1,48 @@
+name: Build and test
+on:
+  pull_request:
+  push:
+    branches: [master, experimental]
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+      - run: python3 tools/test.py --sanitize
+      - run: python3 -m unittest discover -s tests -p 'test_*.py'
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+      - name: Build both Release DLLs and run native regressions
+        shell: pwsh
+        run: ./tools/build.ps1
+      - run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Package experimental build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/experimental/patches | Out-Null
+          Copy-Item out/x64/Release/*.dll out/experimental/
+          Copy-Item config.ini, settings.example.ini out/experimental/
+          Copy-Item out/tools/patch-tool.exe out/experimental/
+          Copy-Item patches/README.md out/experimental/patches/
+          Copy-Item include, examples, docs out/experimental/ -Recurse
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: windows-experimental
+          path: |
+            out/experimental/
