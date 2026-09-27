@@ -104,7 +104,10 @@ VOID CALLBACK bts_main(ULONG_PTR param)
 		}
 
 		hook_developer_mode(spotify_dll_handle);
-		libcef_IAT_hook_GetProcAddress(spotify_dll_handle);
+		if (!libcef_IAT_hook_GetProcAddress(spotify_dll_handle)) {
+			log_info("Failed to hook Spotify GetProcAddress; CEF patches are inactive.");
+			return;
+		}
 		hook_cef_url(libcef_dll_handle);
 		hook_cef_reader(libcef_dll_handle);	// not finished yet.
 		modify_css_init();

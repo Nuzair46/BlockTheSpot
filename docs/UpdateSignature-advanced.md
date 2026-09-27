@@ -2,7 +2,74 @@
 
 This guide documents the workflow for rebuilding, launching, debugging, and updating stale signature-based patches in this repo.
 
-It is written around the findings from the Spotify `1.2.86.502.g8cd7fb22` desktop build that was inspected on April 18, 2026.
+The current config targets Spotify `1.3.1.234` for Windows x64, inspected on September 27, 2026. The older debugging notes below describe `1.2.86.502.g8cd7fb22`, inspected on April 18, 2026; their filenames and signatures are historical examples.
+
+## Porting to 1.3.1.234
+
+This release needs both the updated `config.ini` and a rebuilt `blockthespot.dll`.
+Spotify now imports `GetProcAddress` through
+`api-ms-win-core-libraryloader-l1-2-0.dll`. Searching only the `kernel32.dll`
+import descriptor silently misses it. The hook now searches import names across
+descriptors, including API sets. A failed CEF import hook is logged explicitly.
+Startup messages alone do not establish that URL requests or SPA reads are
+actually being intercepted: look for `block:`, `allow:`, and
+`cef_zip_reader_read_file_hook` messages too.
+
+The config changes are:
+
+- **Developer:** the new branch is `test r14d,r14d; jne +7`. Replacing that
+  `jne` with `jmp` selects the existing true assignment. In this build the
+  signature starts at RVA `0x8BBED`, with the write at `0x8BBF0` (offset 3).
+- **Home ads:** `1602.js` and `home-hpto.js` no longer exist, and the old
+  `bannerMode` / `isHptoHidden` selectors are absent from the SPA JavaScript.
+  The replacement targets the null-render guard next to
+  `data-testid:"home-ads-container"`. The obsolete selector patches and file
+  mappings have been removed.
+- **Leaderboard:** target the null-render guard with `test-ref-div` as a
+  semantic anchor; CSS hashes and minified bindings are wildcarded.
+- **Miniplayer:** anchor on `web-player.pip-mini-player.upsell.title`, with
+  wildcarded CSS hashes and bindings. Replace `return(0,?.jsx)` with
+  `return null&&  ` so the render expression short-circuits. This removes the
+  need for separate opening and closing comment patches.
+- **Album banner:** force the existing null branch next to
+  `catalogue-restricted-banner`, also using a single write.
+- **Optional homepage CSS:** wildcard the selector hash and replace
+  `display:flex` with `display:none` at offset 147. Only a match at byte zero
+  is eligible, currently in `2992.css`; the embedded copy in debug-window CSS
+  is ignored. This option remains disabled by default.
+
+These are byte patterns, so `??` matches exactly one byte. They tolerate
+identifier/hash changes of the same length, not arbitrary changes in minifier
+output or component structure. Revalidate on each Spotify update.
+
+### Validate against clean installed files
+
+`Apps/xpui.spa` is a ZIP archive. Its entries provide clean JavaScript and CSS
+without requiring debug dumps. With Python 3 and Node.js installed, run:
+
+```sh
+python3 tools/validate_signatures.py /path/to/Spotify
+```
+
+The validator reads the installed files without modifying them. It checks the
+developer signature in the x64 DLL's `.text` section, requires one match per
+configured patch, enforces INI buffer limits, applies patches in hook order,
+checks unchanged byte lengths and replacement bounds, and runs `node --check`
+on every patched JavaScript file. It also checks the optional CSS patch.
+Spotify assets are not copied into the repository.
+
+For live verification, back up the installed DLL and config, install the rebuilt
+DLL and updated config with `[Log] Level=2`, and restart Spotify. Visit the home,
+album, and miniplayer views. Each loaded target should log
+`do_patch_buffer: <file> <patch> patch applied.` with no `FindPattern failed`.
+Offline validation proves matching and syntax, not that a view has loaded or
+that every account-specific UI path behaves correctly. Restore the normal log
+level after testing.
+
+On the inspected 1.3.1.234 installation, the Release x64 build logged successful
+application of the developer patch and all four JavaScript patches, with no
+`FindPattern failed` entries. Requests matching all four configured URL rules
+were blocked. The optional CSS patch was validated offline and left disabled.
 
 ## Scope
 
@@ -14,11 +81,9 @@ This guide covers:
 - identifying whether the native hooks are still healthy
 - dumping the intercepted JS files in a `Debug|x64` build
 - rebuilding stale `config.ini` signatures
-- maintaining non-restricted telemetry/metrics-related signatures
+- maintaining signature-based config patches
 
-This guide does not document restricted-feature or upsell-removal patching.
-
-## Current Findings
+## Historical Findings (1.2.86)
 
 From the current debug logs, the following pieces are already working:
 
@@ -35,7 +100,7 @@ The stale signature failures that were observed are:
 - `skipsentry`
 - `disable_metric`
 
-For safe maintenance work, focus on the telemetry/metrics-related patterns (`skipsentry`, `disable_metric`) and the general porting workflow.
+The telemetry/metrics patterns (`skipsentry`, `disable_metric`) below are historical porting examples; they are not sections in the current config.
 
 ## Files That Matter
 
@@ -284,7 +349,7 @@ The general process is the same:
 2. Anchor on stable semantic text rather than hashed class names.
 3. Rebuild the signature and recalculate the offset.
 
-This guide intentionally stops at the general maintenance pattern and does not document restricted-feature or upsell-removal patching.
+For the current replacement, see `miniplayer_hidden` in the 1.3.1.234 notes above.
 
 ## Visual Studio Breakpoint Tips
 
