@@ -1,49 +1,13 @@
 #!/usr/bin/env python3
-"""Validate config.ini against an installed Spotify, without modifying it.
-
-Requires Python 3 and Node.js (for syntax checking patched JavaScript).
-"""
-
+"""Validate installed Spotify assets using the same C++ patch engine as the DLL."""
 import argparse
-import configparser
+import os
 from pathlib import Path
-import re
+import shutil
 import struct
 import subprocess
+import tempfile
 import zipfile
-
-
-def pattern(signature):
-    tokens = signature.split()
-    if not tokens or any(not re.fullmatch(r"[0-9a-fA-F]{2}|\?\?", t) for t in tokens):
-        raise ValueError("invalid or empty signature")
-    # The native parser currently rejects FF, even as a literal byte.
-    if any(t.upper() == "FF" for t in tokens):
-        raise ValueError("FF is not supported by the native hex parser")
-    return re.compile(b"".join(
-        br"[\s\S]" if t == "??" else re.escape(bytes.fromhex(t)) for t in tokens
-    ))
-
-
-def apply_patch(data, section, suffix="", capacity=1024):
-    signature = section[f"Signature{suffix}"]
-    value_text = section[f"Value{suffix}"]
-    if max(len(signature), len(value_text)) >= capacity - 1:
-        raise ValueError("INI value exceeds the hook's string buffer")
-    regex = pattern(signature)
-    # Include overlapping matches when checking uniqueness.
-    matches = list(re.finditer(b"(?=" + regex.pattern + b")", data))
-    if len(matches) != 1:
-        raise ValueError(f"expected one match, found {len(matches)}")
-    value = bytes.fromhex(value_text)
-    if not value or len(value) > len(signature.split()) or 255 in value:
-        raise ValueError("replacement is incompatible with the native parser")
-    start = matches[0].start() + section.getint(f"Offset{suffix}", 0)
-    end = start + len(value)
-    if start < 0 or end > len(data):
-        raise ValueError("replacement extends outside the buffer")
-    return data[:start] + value + data[end:], matches[0].start(), start
-
 
 def text_section(path):
     data = path.read_bytes()
@@ -62,81 +26,75 @@ def text_section(path):
     raise ValueError("missing .text section")
 
 
-def numbered(section):
-    keys = sorted(int(k) for k in section if k.isdecimal())
-    if keys != list(range(1, len(keys) + 1)):
-        raise ValueError("numbered entries must be contiguous starting at 1")
-    # The loader reserves a slot for the empty entry ending each list.
-    if len(keys) >= 10:
-        raise ValueError("too many entries for the native buffer list")
-    return [section[str(k)] for k in keys]
+def run(engine, *args, check=True):
+    result = subprocess.run([str(engine), *map(str, args)], capture_output=True, text=True)
+    if check and result.returncode:
+        raise ValueError(result.stderr.strip() or "patch engine failed")
+    return result
 
 
-def validate(config_path, spotify_dir):
-    config = configparser.ConfigParser(interpolation=None)
-    with config_path.open() as source:
-        config.read_file(source)
-
-    data, rva = text_section(spotify_dir / "Spotify.dll")
-    _, match, write = apply_patch(data, config["Developer"])
-    print(f"Developer: unique match at RVA {rva + match:#x}, write at {rva + write:#x}")
-
-    with zipfile.ZipFile(spotify_dir / "Apps" / "xpui.spa") as archive:
-        for filename in numbered(config["Buffer_modify"]):
-            data = archive.read(filename)
-            original_size = len(data)
-            for name in numbered(config[filename]):
-                section = config[name]
-                if "Signature_1" not in section:
-                    raise ValueError(f"{name}: no signature")
-                if "Signature_3" in section:
-                    raise ValueError(f"{name}: hook supports at most two signatures")
-                for index in (1, 2):
-                    if f"Signature_{index}" not in section:
-                        break
-                    try:
-                        data, match, _ = apply_patch(data, section, f"_{index}")
-                    except ValueError as error:
-                        raise ValueError(f"{filename}/{name}/{index}: {error}") from error
-                    print(f"{filename}/{name}/{index}: unique match at {match:#x}")
-            if len(data) != original_size:
-                raise ValueError(f"{filename}: buffer size changed")
-            result = subprocess.run(["node", "--check"], input=data, capture_output=True)
-            if result.returncode:
-                raise ValueError(f"{filename}: {result.stderr.decode()}")
-            print(f"{filename}: patched JavaScript parses, size unchanged")
-
-        # Validate the optional CSS patch too. The hook only writes when the
-        # matching rule starts at byte zero, so embedded copies are ineligible.
-        section = config["Homepage_vbar"]
-        regex = pattern(section["Signature"])
-        eligible = []
-        for filename in archive.namelist():
-            if filename.endswith(".css"):
-                data = archive.read(filename)
-                if regex.match(data):
-                    patched, _, write = apply_patch(data, section, capacity=2048)
-                    if data[write - 8:write + 4] != b"display:flex":
-                        raise ValueError("CSS offset does not target display:flex")
-                    if patched[write - 8:write + 4] != b"display:none":
-                        raise ValueError("CSS replacement does not produce display:none")
+def validate(config, spotify, engine, dump_dir=None):
+    info = run(engine, 'inspect', config)
+    files = [line.split('\t', 1)[1] for line in info.stdout.splitlines() if line.startswith('FILE\t')]
+    print(info.stdout.strip())
+    with tempfile.TemporaryDirectory(prefix='bts-validate-') as temp:
+        work = Path(temp)
+        source, output = work/'input', work/'output'
+        native, _ = text_section(spotify/'Spotify.dll')
+        source.write_bytes(native)
+        print(run(engine, 'apply', config, 'Developer', source, output).stdout.strip())
+        with zipfile.ZipFile(spotify/'Apps'/'xpui.spa') as archive:
+            for filename in files:
+                clean = archive.read(filename)
+                source.write_bytes(clean)
+                print(run(engine, 'apply', config, filename, source, output).stdout.strip())
+                patched = output.read_bytes()
+                if len(clean) != len(patched):
+                    raise ValueError(f'{filename}: byte length changed')
+                check = subprocess.run(['node', '--check'], input=patched, capture_output=True)
+                if check.returncode:
+                    raise ValueError(f'{filename}: {check.stderr.decode()}')
+                print(f'{filename}: JavaScript syntax passed')
+                if dump_dir:
+                    dump_dir.mkdir(parents=True, exist_ok=True)
+                    (dump_dir/filename).write_bytes(clean)
+            eligible = []
+            for filename in archive.namelist():
+                if not filename.endswith('.css'):
+                    continue
+                clean = archive.read(filename)
+                source.write_bytes(clean)
+                result = run(engine, 'apply', config, 'Homepage_vbar', source, output, check=False)
+                if result.returncode == 0:
                     eligible.append(filename)
-        if len(eligible) != 1:
-            raise ValueError(f"expected one eligible CSS file, found {eligible}")
-        print(f"Homepage_vbar: valid in {eligible[0]} (Enable={section['Enable']})")
+                    if len(clean) != len(output.read_bytes()):
+                        raise ValueError('CSS byte length changed')
+            if len(eligible) != 1:
+                raise ValueError(f'Expected one eligible CSS file, found {eligible}')
+            print(f'Homepage_vbar: {eligible[0]} validated (including disabled option)')
+    print('All signatures validated. Runtime status is reported in blockthespot-status.txt.')
 
 
 def main():
+    root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("spotify_dir", type=Path, help="directory containing Spotify.dll and Apps")
-    parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parents[1] / "config.ini")
+    parser.add_argument('spotify_dir', type=Path)
+    parser.add_argument('--config', type=Path, default=root/'config.ini')
+    parser.add_argument('--engine', type=Path)
+    parser.add_argument('--dump-dir', type=Path, help='write clean configured JS files for signature maintenance')
     args = parser.parse_args()
+    engine = args.engine
+    if engine is None:
+        engine = root/'out'/'tools'/('patch-tool.exe' if os.name == 'nt' else 'patch-tool')
     try:
-        validate(args.config, args.spotify_dir)
-    except (ValueError, KeyError, OSError, zipfile.BadZipFile) as error:
-        parser.exit(1, f"Validation failed: {error}\n")
-    print("All configured signatures validated offline; runtime hooks still require a live check.")
+        if not engine.is_file():
+            raise ValueError('Build the shared engine first: tools/build.ps1 on Windows or python3 tools/test.py elsewhere')
+        if not shutil.which('node'):
+            raise ValueError('Node.js is required for patched JavaScript syntax checks')
+        validate(args.config.resolve(), args.spotify_dir, engine.resolve(), args.dump_dir)
+    except (ValueError, KeyError, OSError, struct.error, zipfile.BadZipFile) as error:
+        parser.exit(1, f'Validation failed: {error}\n')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

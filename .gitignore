@@ -19,3 +19,10 @@
 /tmp_extract_all
 /tmp_live_backup_*/
 /dump_*.js
+
+*.obj
+*.lib
+__pycache__/
+/settings.ini
+/blockthespot*.log*
+/blockthespot-status.txt

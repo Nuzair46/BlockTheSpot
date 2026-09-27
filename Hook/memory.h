@@ -1,4 +1,3 @@
 #pragma once
 #include "loader.h"
-
-void patch_instruction(LPVOID* lpAddress, void* value, SIZE_T patch_size);
+bool patch_instruction(void* address, const void* value, size_t size) noexcept;

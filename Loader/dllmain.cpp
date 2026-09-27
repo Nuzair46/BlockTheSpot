@@ -1,14 +1,7 @@
-// dllmain.cpp : Defines the entry point for the DLL application.
 #include "pch.h"
+extern "C" __declspec(dllimport) void bts_load_anchor();
 
-BOOL APIENTRY DllMain(HMODULE hModule,
-	DWORD  ul_reason_for_call,
-	LPVOID lpReserved
-)
-{
-	if (DLL_PROCESS_ATTACH == ul_reason_for_call) {
-		DisableThreadLibraryCalls(hModule);
-		LoadLibraryW(L"./blockthespot.dll");
-	}
-	return TRUE;
+BOOL APIENTRY DllMain(HMODULE, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) bts_load_anchor();
+    return TRUE;
 }

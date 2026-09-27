@@ -1,367 +1,90 @@
 #include "pch.h"
 #include "cef_zip_reader_hook.h"
-#include "loader.h"
 #include "funct_pointer.h"
 #include "log_thread.h"
-#include "pattern.h"
-#include "IAT_hook.h"
 #include "css_cosmetic.h"
+#include <atomic>
 
-static inline size_t cef_buffer_modify_count = 0;
-static inline char cef_buffer_list[MAX_CEF_BUFFER_MODIFY_LIST][MAX_URL_LEN] = {};
+namespace {
+using create_t = void* (*)(void*);
+using read_t = int(CALLBACK*)(void*, void*, size_t);
+create_t original_create = nullptr;
+std::atomic<read_t> original_read = nullptr;
+free_cef_string_t free_string = nullptr;
+bool enabled = false;
 
-#ifdef _DEBUG
-static void debug_dump_target_file(const char* file_name, const void* buffer, size_t bufferSize) noexcept
-{
-	if (!file_name || !buffer || 0 == bufferSize || bufferSize > MAXDWORD) {
-		return;
-	}
-
-	static bool dumped_snapshot = false;
-	static bool dumped_pip = false;
-	bool* dumped = nullptr;
-	const char* output_name = nullptr;
-
-	if (0 == lstrcmpiA(file_name, "xpui-snapshot.js")) {
-		dumped = &dumped_snapshot;
-		output_name = "dump_xpui-snapshot.js";
-	}
-	else if (0 == lstrcmpiA(file_name, "xpui-pip-mini-player.js")) {
-		dumped = &dumped_pip;
-		output_name = "dump_xpui-pip-mini-player.js";
-	}
-
-	if (!dumped || *dumped) {
-		return;
-	}
-
-	const HANDLE file = CreateFileA(
-		output_name,
-		GENERIC_WRITE,
-		FILE_SHARE_READ,
-		nullptr,
-		CREATE_ALWAYS,
-		FILE_ATTRIBUTE_NORMAL,
-		nullptr
-	);
-
-	if (INVALID_HANDLE_VALUE == file) {
-		return;
-	}
-
-	DWORD written = 0;
-	if (FALSE != WriteFile(
-		file,
-		buffer,
-		static_cast<DWORD>(bufferSize),
-		&written,
-		nullptr)) {
-		*dumped = true;
-		_snprintf_s(
-			shared_buffer,
-			SHARED_BUFFER_SIZE,
-			_TRUNCATE,
-			"debug_dump_target_file: wrote %s (%lu bytes)",
-			output_name,
-			static_cast<unsigned long>(written)
-		);
-		log_info(shared_buffer);
-	}
-
-	CloseHandle(file);
+int CALLBACK read_file(void* self, void* buffer, size_t capacity) {
+    auto read = original_read.load();
+    int count = read(self, buffer, capacity);
+    if (count <= 0 || !buffer) return count;
+    if (static_cast<size_t>(count) > capacity) { set_status("SPA", "failed", "CEF returned an invalid read length"); return count; }
+    using name_t = CefString* (__stdcall*)(void*);
+    auto get_name = get_funct_t<name_t>(self, runtime_config.name_offset);
+    if (!get_name) { set_status("SPA", "failed", "CEF filename member is missing"); return count; }
+    auto raw = get_name(self);
+    if (!raw) return count;
+    std::string name;
+    if (raw->str) {
+        // SPA entry names are ASCII; skip anything else without lossy conversion.
+        for (size_t i = 0; i < raw->length; ++i) {
+            if (raw->str[i] > 127 || raw->str[i] == 0) { name.clear(); break; }
+            name += static_cast<char>(raw->str[i]);
+        }
+    }
+    free_string(raw);
+    if (name.empty()) return count;
+    const bts::FilePatch* target = nullptr;
+    if (runtime_config.buffers_enabled) {
+        for (const auto& file : runtime_config.files) if (file.file == name) { target = &file; break; }
+    }
+    bool css = runtime_config.css_enabled && std::string_view(name).ends_with(".css");
+    if (!target && !css) return count;
+    // Full-file transactions cannot safely be applied after earlier chunks
+    // have already been returned to CEF. Leave split reads untouched.
+    using size_t_fn = int64_t(__stdcall*)(void*);
+    auto get_size = get_funct_t<size_t_fn>(self, runtime_config.name_offset + sizeof(void*));
+    auto tell = get_funct_t<size_t_fn>(self, runtime_config.read_offset + sizeof(void*));
+    if (!get_size || !tell || get_size(self) != count || tell(self) != count) {
+        set_status(target ? name : "Homepage_vbar", "skipped", "partial ZIP read; buffer unchanged"); return count;
+    }
+    if (target) {
+        std::string error;
+        if (!bts::apply({static_cast<uint8_t*>(buffer), static_cast<size_t>(count)}, target->patches, error))
+            set_status(name, "failed", error);
+        else set_status(name, "applied", std::to_string(target->patches.size()) + " validated writes");
+    }
+    if (css) css_hide_vbar(name.c_str(), buffer, static_cast<size_t>(count));
+    return count;
 }
-#else
-static void debug_dump_target_file(const char* file_name, const void* buffer, size_t bufferSize) noexcept {}
-#endif
-
-using cef_zip_reader_create_t = void* (*)(void* stream);
-static inline cef_zip_reader_create_t cef_zip_reader_create_orig = nullptr;
-static inline cef_zip_reader_create_t cef_zip_reader_create_impl = nullptr;
-
-using cef_zip_reader_read_file_t = int(CALLBACK*)(void* self, void* buffer, size_t bufferSize);
-static cef_zip_reader_read_file_t cef_zip_reader_read_file_orig = nullptr;
-
-// compare file name in spa vs config.ini
-static bool need_patch(const char* in_file) noexcept {
-	for (size_t i = 0; i < cef_buffer_modify_count; ++i) {
-		const char* target = cef_buffer_list[i];
-
-		if (0 == lstrcmpiA(in_file, target)) {
-			return true;
-		}
-	}
-	return false;
 }
 
-static inline bool do_patch_buffer(const char* file_name, const char* patch_name, void* buffer, size_t bufferSize) noexcept
-{
-	constexpr auto PAIR_MODIFY = 2;
-	Modify modify[PAIR_MODIFY] = {};
+bool cef_reader_ready() noexcept { return enabled; }
 
-	char temp_buffer[SHARED_BUFFER_SIZE];
-	size_t modify_count = 0;
-
-	for (size_t i = 0; i < PAIR_MODIFY; ++i) {
-		const size_t display_idx = i + 1;
-		// get signature
-		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Signature_%zu", display_idx);
-		const auto signature_raw_length = GetPrivateProfileStringA(
-			patch_name,
-			shared_buffer,
-			"",
-			temp_buffer,
-			SHARED_BUFFER_SIZE,
-			CONFIG_FILEA
-		);
-
-		if (0 == signature_raw_length) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu empty, stop processing", file_name, patch_name, display_idx);
-			log_debug(shared_buffer);
-			break;
-		}
-
-		const auto signature_hex_size = parse_signaure(temp_buffer,
-			signature_raw_length,
-			modify[i].signature,
-			modify[i].mask,
-			SHARED_BUFFER_SIZE);
-
-		if (SIZE_MAX == signature_hex_size) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu parse fail, limit exceed", file_name, patch_name, display_idx);
-			log_debug(shared_buffer);
-			return false;
-		}
-
-		modify[i].mask[signature_hex_size] = '\0';
-
-		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Offset_%zu", display_idx);
-		modify[i].offset = GetPrivateProfileIntA(
-			patch_name,
-			shared_buffer,
-			0,
-			CONFIG_FILEA
-		);
-
-		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Value_%zu", display_idx);
-		const auto value_raw_length = GetPrivateProfileStringA(
-			patch_name,
-			shared_buffer,
-			"",
-			temp_buffer,
-			SHARED_BUFFER_SIZE,
-			CONFIG_FILEA
-		);
-
-		modify[i].patch_size = parse_hex(
-			temp_buffer,
-			value_raw_length,
-			modify[i].value,
-			SHARED_BUFFER_SIZE
-		);
-
-		if (SIZE_MAX == modify[i].patch_size) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu parse hex limit exceed", file_name, patch_name, display_idx);
-			log_debug(shared_buffer);
-			return false;
-		}
-
-		if (modify[i].patch_size > signature_hex_size) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu patch_size > signature_hex_size", file_name, patch_name, display_idx);
-			log_debug(shared_buffer);
-			return false;
-		}
-
-		modify_count = display_idx;
-	}
-
-	if (0 == modify_count) {
-		return false;
-	}
-
-	for (size_t i = 0; i < modify_count; ++i) {
-		const size_t display_idx = i + 1;
-		const auto address = FindPattern(
-			reinterpret_cast<BYTE*>(buffer),
-			static_cast<DWORD>(bufferSize),
-			modify[i].signature,
-			reinterpret_cast<char*>(&modify[i].mask)
-		);
-		if (nullptr == address) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "do_patch_buffer: %s %s signature_%zu FindPattern failed.", file_name, patch_name, display_idx);
-			log_debug(shared_buffer);
-			return false;
-		}
-		memcpy(address + modify[i].offset, modify[i].value, modify[i].patch_size);
-	}
-
-	_snprintf_s(temp_buffer, SHARED_BUFFER_SIZE, _TRUNCATE,
-		"do_patch_buffer: %s %s patch applied.", file_name, patch_name);
-	log_debug(temp_buffer);
-	return true;
+void* cef_zip_reader_create_stub(void* stream) {
+    void* reader = original_create(stream);
+    if (!reader) return nullptr;
+    auto read = get_funct_t<read_t>(reader, runtime_config.read_offset);
+    if (!read) { set_status("SPA", "failed", "CEF reader layout is incompatible"); return reader; }
+    if (read == read_file) return reader;
+    read_t expected = nullptr;
+    if (!original_read.compare_exchange_strong(expected, read) && expected != read) {
+        set_status("SPA", "failed", "reader callback changed; object left unmodified"); return reader;
+    }
+    if (!overwrite_funct_t(reader, runtime_config.read_offset, read_file))
+        set_status("SPA", "failed", "unable to protect reader callback");
+    return reader;
 }
 
-static void patch_file(const char* file_name, void* buffer, size_t bufferSize) noexcept
-{
-	char patch_name[MAX_URL_LEN]{};
-	for (size_t i = 0; i < MAX_CEF_BUFFER_MODIFY_LIST; ++i) {
-		const size_t display_idx = i + 1;
-		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "%zu", display_idx);
-		const auto len = GetPrivateProfileStringA(
-			file_name,
-			shared_buffer,
-			"",
-			patch_name,
-			MAX_URL_LEN,
-			CONFIG_FILEA
-		);
-
-		if (0 == len) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "%s buffer modify %zu: empty, stop processing", file_name, display_idx);
-			log_debug(shared_buffer);
-			break;
-		}
-		do_patch_buffer(file_name, patch_name, buffer, bufferSize);
-	}
-}
-
-#ifdef USE_LIBCEF
-int CALLBACK cef_zip_reader_t_read_file_hook(struct _cef_zip_reader_t* self, void* buffer, size_t bufferSize)
-#else
-int CALLBACK cef_zip_reader_read_file_hook(void* self, void* buffer, size_t bufferSize)
-#endif
-{
-	int _retval = cef_zip_reader_read_file_orig(self, buffer, bufferSize);
-
-#ifdef USE_LIBCEF
-	std::wstring file_name = Utils::ToString(self->get_file_name(self)->str);
-#else
-	using get_file_name_t = void* (__stdcall*)(void*);
-	const auto get_file_name = get_funct_t<get_file_name_t>(
-		self, CEF_ZIP_READER_GET_FILE_NAME_OFFSET);
-	const wchar_t* file_name = *reinterpret_cast<wchar_t**>(get_file_name(self));
-#endif
-
-	char ansi_file_name[MAX_URL_LEN];
-	const auto len = WideCharToMultiByte(CP_ACP, 0, file_name, -1, ansi_file_name, MAX_URL_LEN, NULL, NULL);
-	if (0 == len) {
-		return _retval;
-	}
-
-	debug_dump_target_file(ansi_file_name, buffer, bufferSize);
-
-	const bool do_patch = need_patch(ansi_file_name);
-
-	char log_buf[256]{};
-	_snprintf_s(
-		log_buf,
-		sizeof(log_buf),
-		_TRUNCATE,
-		"cef_zip_reader_read_file_hook: %s %s",
-		do_patch ? "patching" : "skip",
-		ansi_file_name
-	);
-	log_debug(log_buf);
-
-	if (true == do_patch) {
-		patch_file(ansi_file_name, buffer, bufferSize);
-	}
-	css_hide_vbar(ansi_file_name, buffer, bufferSize);
-
-	return _retval;
-}
-
-void* cef_zip_reader_create_stub(void* stream)
-{
-	return cef_zip_reader_create_impl(stream);
-}
-
-#ifdef USE_LIBCEF
-cef_zip_reader_t* cef_zip_reader_create_hook(cef_stream_reader_t* stream)
-#else
-void* cef_zip_reader_create_hook(void* stream)
-#endif
-{
-#ifdef USE_LIBCEF
-	cef_zip_reader_t* zip_reader = (cef_zip_reader_t*)cef_zip_reader_create_orig(stream);
-	cef_zip_reader_t_read_file_orig = (_cef_zip_reader_t_read_file)zip_reader->read_file;
-#else
-	auto zip_reader = cef_zip_reader_create_orig(stream);
-	cef_zip_reader_read_file_orig =
-		get_funct_t<cef_zip_reader_read_file_t>(
-			zip_reader, CEF_ZIP_READER_GET_READ_FILE_OFFSET);
-	overwrite_funct_t<cef_zip_reader_read_file_t>(
-		zip_reader, CEF_ZIP_READER_GET_READ_FILE_OFFSET, cef_zip_reader_read_file_hook);
-#endif
-	return zip_reader;
-}
-
-static inline void do_hook_cef_zip_reader(HMODULE libcef_dll_handle) noexcept
-{
-	cef_zip_reader_create_impl = cef_zip_reader_create_hook;
-	log_debug("do_hook_cef_zip_reader: cef_zip_reader_create_impl = cef_zip_reader_create_hook.");
-	log_info("do_hook_cef_zip_reader: patch applied.");
-}
-
-static inline void load_cef_reader_config()
-{
-	CEF_ZIP_READER_GET_READ_FILE_OFFSET = GetPrivateProfileIntA(
-		"LIBCEF",
-		"CEF_ZIP_READER_GET_READ_FILE_OFFSET",
-		static_cast<INT>(CEF_ZIP_READER_GET_READ_FILE_OFFSET),
-		CONFIG_FILEA
-	);
-
-	CEF_ZIP_READER_GET_FILE_NAME_OFFSET = GetPrivateProfileIntA(
-		"LIBCEF",
-		"CEF_ZIP_READER_GET_FILE_NAME_OFFSET",
-		static_cast<INT>(CEF_ZIP_READER_GET_FILE_NAME_OFFSET),
-		CONFIG_FILEA
-	);
-
-	for (size_t i = 0; i < MAX_CEF_BUFFER_MODIFY_LIST; ++i) {
-		const size_t display_idx = i + 1;
-		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "%zu", display_idx);
-		const auto len = GetPrivateProfileStringA(
-			"Buffer_modify",
-			shared_buffer,
-			"",
-			cef_buffer_list[i],
-			MAX_URL_LEN,
-			CONFIG_FILEA
-		);
-		if (0 == len) {
-			_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Load buffer modify %zu: fail, stop processing", display_idx);
-			log_debug(shared_buffer);
-			cef_buffer_modify_count = i;
-			break;
-		}
-		_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "Load buffer modify %zu:%s", display_idx, cef_buffer_list[i]);
-		log_debug(shared_buffer);
-	}
-	_snprintf_s(shared_buffer, SHARED_BUFFER_SIZE, _TRUNCATE, "%zu modify list loaded", cef_buffer_modify_count);
-	log_info(shared_buffer);
-}
-
-static inline bool is_cef_reader_hook() noexcept
-{
-	auto is_enable = GetPrivateProfileIntA(
-		"Buffer_modify",
-		"Enable",
-		0,
-		CONFIG_FILEA
-	);
-	return 0 != is_enable;
-}
-
-void hook_cef_reader(HMODULE libcef_dll_handle) noexcept
-{
-	cef_zip_reader_create_orig =
-		reinterpret_cast<cef_zip_reader_create_t>(
-			GetProcAddress_orig(libcef_dll_handle, "cef_zip_reader_create"));
-	cef_zip_reader_create_impl = cef_zip_reader_create_orig;
-
-	if (true == is_cef_reader_hook()) {
-		load_cef_reader_config();
-		do_hook_cef_zip_reader(libcef_dll_handle);
-	}
+void hook_cef_reader(HMODULE libcef) noexcept {
+    enabled = compatible_spotify && (runtime_config.buffers_enabled || runtime_config.css_enabled);
+    for (const auto& target : runtime_config.files)
+        set_status(target.file, enabled && runtime_config.buffers_enabled ? "pending" : "skipped",
+            !compatible_spotify ? "unsupported Spotify version" : runtime_config.buffers_enabled ? "not loaded yet" : "disabled");
+    set_status("Homepage_vbar", enabled && runtime_config.css_enabled ? "pending" : "skipped",
+        runtime_config.css_enabled ? "waiting for matching CSS" : "disabled");
+    if (!enabled) return;
+    original_create = reinterpret_cast<create_t>(GetProcAddress(libcef, "cef_zip_reader_create"));
+    free_string = reinterpret_cast<free_cef_string_t>(GetProcAddress(libcef, "cef_string_userfree_utf16_free"));
+    if (!original_create || !free_string) { enabled = false; set_status("SPA", "failed", "required CEF exports missing"); return; }
+    set_status("SPA", "ready", "waiting for ZIP reads");
 }

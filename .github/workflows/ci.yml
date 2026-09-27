@@ -1,0 +1,41 @@
+name: Build and test
+on:
+  pull_request:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python3 tools/test.py --sanitize
+      - run: python3 -m unittest discover -s tests -p 'test_*.py'
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build both Release DLLs and run native regressions
+        shell: pwsh
+        run: ./tools/build.ps1
+      - run: python -m unittest discover -s tests -p 'test_*.py'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            out/x64/Release/*.dll
+            out/x64/Release/*.pdb
+            out/tools/patch-tool.exe

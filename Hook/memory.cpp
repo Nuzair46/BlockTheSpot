@@ -1,10 +1,12 @@
 #include "pch.h"
 #include "memory.h"
 
-void patch_instruction(LPVOID* lpAddress, void* value, SIZE_T patch_size)
-{
-	DWORD oldProtect;
-	VirtualProtect(lpAddress, patch_size, PAGE_EXECUTE_READWRITE, &oldProtect);
-	memcpy(lpAddress, value, patch_size);
-	VirtualProtect(lpAddress, patch_size, oldProtect, &oldProtect);
+bool patch_instruction(void* address, const void* value, size_t size) noexcept {
+    if (!address || !value || !size) return false;
+    DWORD old_protect = 0;
+    if (!VirtualProtect(address, size, PAGE_EXECUTE_READWRITE, &old_protect)) return false;
+    memcpy(address, value, size);
+    DWORD unused = 0;
+    bool restored = VirtualProtect(address, size, old_protect, &unused) != FALSE;
+    return FlushInstructionCache(GetCurrentProcess(), address, size) != FALSE && restored;
 }
