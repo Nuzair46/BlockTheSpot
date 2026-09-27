@@ -1,36 +1,15 @@
-<center>
-  <h1 align="center">BlockTheSpot</h1>
-  <h4 align="center">A multi-purpose adblocker and skip-bypass for <strong>Spotify for Windows (64 bit)</strong></h4>
-  <h5 align="center">Please support Spotify by purchasing premium</h5>
-  <p align="center">
-    <a href="https://github.com/Nuzair46/BlockTheSpot-Installer/releases/latest"><img src="https://raw.githubusercontent.com/Nuzair46/BlockTheSpot-Installer/main/assets/blockthespot.png" alt="BlockTheSpot" /></a>
-  </p>
-</center>
+# BlockTheSpot
 
-[![Build status](https://github.com/Nuzair46/BlockTheSpot/actions/workflows/manual-release.yml/badge.svg?branch=master)](https://github.com/Nuzair46/BlockTheSpot/actions/workflows/manual-release.yml) [![Discord](https://discord.com/api/guilds/807273906872123412/widget.png)](https://discord.gg/eYudMwgYtY) ![Downloads](https://img.shields.io/github/downloads/Nuzair46/BlockTheSpot/total.svg)
+[![Build and test](https://github.com/Nuzair46/BlockTheSpot/actions/workflows/ci.yml/badge.svg?branch=experimental)](https://github.com/Nuzair46/BlockTheSpot/actions/workflows/ci.yml) [![Discord](https://discord.com/api/guilds/807273906872123412/widget.png)](https://discord.gg/eYudMwgYtY)
 
-## Overview
+This is the **experimental mod-loader branch** for the standard Windows x64
+[Spotify desktop app](https://www.spotify.com/download/windows/). The Microsoft
+Store app is unsupported. The current build targets **Spotify 1.3.1.234**.
 
-This is the **experimental mod-loader branch**. It loads DLL mods and INI patch
-packs from `patches` beside Spotify. See the [mod guide](docs/Mods.md) for installing
-mods, disabling them, and building your own. The standard installer installs the
-stable release; use the [experimental CI build](https://github.com/Nuzair46/BlockTheSpot/actions/workflows/ci.yml?query=branch%3Aexperimental)
-or build this branch to use the mod loader.
-
-BlockTheSpot focuses on the Windows desktop client and keeps the patch surface small:
-
-- blocks ad-related requests
-- applies signature-based SPA patches through `config.ini`
-- enables Spotify's hidden developer menu
-- adds BlockTheSpot's GitHub and Discord links to **Help > About Spotify**
-- loads external DLL and INI mods with per-mod settings and runtime reports
-
-This project is for the standard [Spotify desktop app](https://www.spotify.com/download/windows/) only. It does not support the Microsoft Store build.
-
-## Requirements
-
-- Windows 64-bit
-- The installer sets up the Spotify desktop client in `%APPDATA%\Spotify`
+BlockTheSpot itself is a bundled mod: `patches/blockthespot.dll` with
+`patches/blockthespot.ini`. It blocks ad-related requests, patches the frontend,
+enables the developer menu, and adds GitHub and Discord links to **Help > About
+Spotify**. Other DLL and INI mods use the same loader and patch engine.
 
 ## Install or update the stable release (recommended)
 
@@ -38,132 +17,145 @@ Use the [BlockTheSpot Installer](https://github.com/Nuzair46/BlockTheSpot-Instal
 
 1. Download [BlockTheSpotInstaller.exe](https://github.com/Nuzair46/BlockTheSpot-Installer/releases/latest/download/BlockTheSpotInstaller.exe).
 2. Run it and use the recommended Spotify version.
-3. Click **Install / Patch**. The installer closes Spotify, installs the compatible
-   desktop version when needed, and applies BlockTheSpot.
+3. Click **Install / Patch**.
 
-Run the installer again to update or repair the patch. It preserves your
-`settings.ini` preferences, including across Spotify reinstalls. On the first
-upgrade, supported preferences from an older `config.ini` move into `settings.ini`.
-**Reset BlockTheSpot settings to defaults** is optional and off by default.
+The installer handles the compatible desktop client, patch updates, and repairs.
+It preserves the **stable release's** `settings.ini`, including across Spotify
+reinstalls. **Reset BlockTheSpot settings to defaults** is optional.
 
-The bundled signature pack targets **Spotify 1.3.1.234 x64**. Other versions are
-reported as unsupported and version-sensitive patches are skipped.
+The stable installer does not install this experimental branch or its new mod
+layout. Use the instructions below to try the mod loader.
 
-### Install the experimental mod loader
+## Install the experimental build
 
-Download the `windows-experimental` artifact from a successful experimental CI
-run, or build this branch with `tools/build.ps1`. Close Spotify and install the
-matching DLL pair and `config.ini` using the manual steps below. Keep your
-`settings.ini` and existing `patches` directory when updating.
+Download `windows-experimental` from a successful
+[experimental CI run](https://github.com/Nuzair46/BlockTheSpot/actions/workflows/ci.yml?query=branch%3Aexperimental),
+or build this branch. Install the compatible Spotify desktop client first.
+Close Spotify completely before changing files.
 
-Create `%APPDATA%\Spotify\patches`, then add mods there. DLLs and INIs are loaded
-on the next launch. Add `[Mods] Enable=0` to `settings.ini` to disable all external
-mods, or remove a problematic mod while Spotify is closed. The
-[mod guide](docs/Mods.md) covers individual overrides and development examples.
+1. On a fresh installation, rename Spotify's original `chrome_elf.dll` to
+   `chrome_elf_required.dll`.
+2. Copy `chrome_elf.dll`, `bts-loader.dll`, and `config.ini` from the package to
+   `%APPDATA%\Spotify`.
+3. Copy the package's `patches` contents into `%APPDATA%\Spotify\patches`, keeping
+   other mods already there. The bundled `blockthespot.dll` and `blockthespot.ini`
+   must stay together in that folder.
+4. Start Spotify and check `blockthespot-status.txt`.
 
-To return to stable, remove the `[Mods]` section from `settings.ini` and run the
-standard installer. Stable builds do not understand experimental mod preferences.
+The resulting layout is:
 
-### Manual installation (optional)
+```text
+Spotify/
+  Spotify.exe
+  chrome_elf.dll              proxy
+  chrome_elf_required.dll     matching original Spotify DLL
+  bts-loader.dll             host and shared patch engine
+  config.ini                 loader settings and CEF compatibility
+  patches/
+    blockthespot.dll          bundled adblocking mod
+    blockthespot.ini          its signatures, URL rules, and preferences
+    othermod.dll             optional additional mod
+    othermod.ini             optional settings for othermod.dll
+    custom-ui.ini            optional standalone declarative mod
+```
 
-Install the compatible Spotify desktop client in `%APPDATA%\Spotify` first.
-Download the files from one [release](https://github.com/Nuzair46/BlockTheSpot/releases)
-or one experimental build; keep both DLLs and the config together.
-Close Spotify completely before changing its DLLs.
+All mods are enabled automatically when present. A DLL's optional INI must have
+exactly the same filename stem, with case ignored. No `settings.ini` entries are
+required. See the [mod guide](docs/Mods.md) for formats and examples.
 
-1. On a fresh Spotify installation, rename Spotify's original `chrome_elf.dll`
-   to `chrome_elf_required.dll`.
-2. Copy the release's `chrome_elf.dll`, `blockthespot.dll`, and `config.ini` to
-   `%APPDATA%\Spotify` together.
-3. Optionally copy `settings.example.ini` to `settings.ini` and edit your
-   preferences. Keep your existing `settings.ini` when updating the patch.
-4. Start Spotify and inspect `blockthespot-status.txt` in its installation folder.
+### Updating and migrating preferences
 
-When updating only BlockTheSpot, keep `chrome_elf_required.dll` and replace the
-three patch files together. After **Spotify itself updates**, the original DLL
-must come from that new Spotify build. If Spotify has restored its stock
-`chrome_elf.dll`, use that file to replace `chrome_elf_required.dll` before
-installing the proxy again. If you cannot identify the stock DLL, repair or
-reinstall Spotify first; do not rename the patch's proxy as the original.
+Keep the proxy, host, root config, and bundled mod from the same build. Before
+replacing a mod's INI, back it up and carry your feature switches into the new
+file; retain the new signatures and compatibility fields. Preserve other mods
+when copying the package. Mods and preferences are read once at startup.
+
+Older builds put adblocking in the root `blockthespot.dll` and signatures in
+`config.ini`. Replace the root proxy with the new build, add `bts-loader.dll`,
+and remove the old **root** `blockthespot.dll`. Move your `Developer`, `URL_block`,
+`Buffer_modify`, and `Homepage_vbar` Enable values from the old `settings.ini`
+into `patches/blockthespot.ini`. Logging and `LIBCEF/Block_crashpad` now belong
+in root `config.ini`. This branch does not read `settings.ini`; keep it as a
+backup if you plan to return to stable.
+
+When updating only the patch, retain `chrome_elf_required.dll`. After **Spotify
+itself updates**, that original must come from the new Spotify build. If Spotify
+restored its stock `chrome_elf.dll`, use it to replace `chrome_elf_required.dll`
+before installing the proxy again. If you cannot identify the original, repair
+Spotify first; do not rename the patch proxy as the original.
+
+To return to stable, remove `bts-loader.dll` and the bundled pair in `patches`,
+then run the standard installer. Keep any other mods for later; stable does not
+load them.
+
+### Manual stable installation (optional)
+
+Download `chrome_elf.dll`, `blockthespot.dll`, and `config.ini` from one
+[stable release](https://github.com/Nuzair46/BlockTheSpot/releases). With Spotify
+closed, preserve its matching original as `chrome_elf_required.dll`, then copy
+those three release files beside `Spotify.exe`. Stable uses the root
+`blockthespot.dll` and optional `settings.ini`; follow the documentation from that
+release when setting preferences.
 
 ## Preferences and troubleshooting
 
-`config.ini` is the versioned signature pack. Put personal preferences in
-`settings.ini`; missing preferences use the pack's defaults. Supported keys
-are listed in [settings.example.ini](settings.example.ini). Restart Spotify
-after changing either file. For manual updates, move existing custom feature
-flags from `config.ini` to `settings.ini` before replacing the pack.
+Edit each mod's own INI. For example, `[Homepage_vbar] Enable=1` in
+`patches/blockthespot.ini` enables the optional homepage CSS change. Set
+`[Mod] Enable=0` there to disable the entire mod, or remove its DLL/INI pair.
+Set `[Mods] Enable=0` in root `config.ini` to disable **all** mods, including
+BlockTheSpot. Logging and CEF offsets also live in root `config.ini`.
 
-`blockthespot-status.txt` reports each feature as pending, ready, active, applied,
-skipped, or failed, with an update time and process ID. A pending SPA file has
-not been read yet; visit its view. A ready hook has initialized but has not yet
-observed a matching request. A failed signature contributes no writes from its
-patch group; unrelated mod groups may still apply. Partial ZIP reads are skipped
-rather than patched across chunks.
+`blockthespot-status.txt` reports each mod and patch target as pending, ready,
+active, applied, skipped, or failed. A pending frontend file has not been read
+yet; visit its view. A failed patch group contributes no writes, while unrelated
+mods may still apply. Partial ZIP reads remain unchanged. Unsupported Spotify
+versions skip all mods and version-sensitive hooks.
 
-`blockthespot.log` records errors at the default `[Log] Level=0`. Levels `1` and
-`2` add status and debug messages. Logs omit request URLs and rotate at about
-1 MiB into `blockthespot.log.1`. The health report is written at every log level.
-If no new report appears, run **Install / Patch** again and check the installer's
-activity log. For manual installations, check that both patch DLLs and `config.ini`
-came from the same release and that the original DLL matches your Spotify build.
+`blockthespot.log` records errors at `[Log] Level=0`. Levels `1` and `2` add status
+and debug messages; URLs are redacted. Logs rotate at about 1 MiB. If the report
+is missing, check that the proxy and host come from the same build and the
+original DLL matches Spotify.
 
-If Spotify cannot start, close its remaining processes, remove the proxy
-`chrome_elf.dll`, and restore the matching original `chrome_elf_required.dll` as
-`chrome_elf.dll`. Repair Spotify if the original is missing or from another build.
+If Spotify cannot start, close its processes, remove the proxy `chrome_elf.dll`,
+and restore the matching `chrome_elf_required.dll` as `chrome_elf.dll`. Repair
+Spotify if the original is missing or from another build.
 
 ## Uninstall
 
-Choose **Uninstall / Restore** in the installer. It keeps `settings.ini` so your
-preferences are available if you reinstall.
+For stable, use **Uninstall / Restore** in the installer.
 
-To uninstall manually:
-
-1. Close Spotify completely.
-2. Remove the patch's `chrome_elf.dll`, `blockthespot.dll`, and `config.ini`.
-3. Rename the matching `chrome_elf_required.dll` back to `chrome_elf.dll`.
-4. Optionally remove `settings.ini`, `blockthespot-status.txt`, and the two log files.
+For this experimental build, close Spotify, remove `chrome_elf.dll`,
+`bts-loader.dll`, and `config.ini`, then rename the matching original
+`chrome_elf_required.dll` to `chrome_elf.dll`. Remove the bundled DLL/INI from
+`patches`; keep other mods and their preferences if needed. Logs and the status
+report can also be removed.
 
 ## Build and contribute
 
 Install Visual Studio 2022 / Build Tools with **Desktop development with C++**,
-the MSVC v143 x64 toolchain, and a Windows 10/11 SDK. From PowerShell:
+MSVC v143 x64, and a Windows 10/11 SDK. From PowerShell:
 
 ```powershell
 .\tools\build.ps1
-```
-
-This builds both Release DLLs, debug symbols, the shared signature validator,
-and native regression tests. Output is under `out/x64/Release` and `out/tools`.
-Use `-Configuration Debug` for debugging or `-SdkRoot` for a complete SDK in a
-custom location. No Spotify files are required for the build or regression tests.
-
-With Python 3 and Node.js installed, run the synthetic validator tests:
-
-```powershell
 python -m unittest discover -s tests -p 'test_*.py'
+.\tools\package.ps1
 ```
 
-Linux/macOS contributors can test the portable C++20 engine with
-`python3 tools/test.py --sanitize`, then run the same Python tests. Pull requests
-run Linux sanitizers and the Windows Release build/tests automatically.
+The build includes the proxy, host, bundled mod, offline validator, and native
+regression tests. DLLs are under `out/x64/Release`, with the mod in its `patches`
+subfolder. Tools are under `out/tools`. Packaging creates a new `out/experimental`
+folder with the installation layout; choose a new `-Destination` when packaging
+again. Use `-Configuration Debug` or `-SdkRoot` for local development.
 
-See the [advanced guide](docs/UpdateSignature-advanced.md) for clean-asset
-validation, the patch format, runtime diagnostics, and signature maintenance.
+Linux/macOS contributors can run `python3 tools/test.py --sanitize`, followed by
+the Python tests. Python 3 and Node.js are required for synthetic JavaScript
+validation. CI runs Linux sanitizers and the Windows build/integration tests.
 
-## Experimental developer features
-
-1. Open Spotify.
-2. Click the two dots in the top-left corner.
-3. Go to `Develop > Show debug window`.
-4. Toggle experimental options there as needed.
-
-## Defender warning
-
-- Unsigned DLLs can trigger false positives in Windows Defender or other antivirus products.
-- The source is fully available on GitHub for inspection.
-- If you do not trust prebuilt binaries, build from source and compare the outputs yourself.
+See the [mod guide](docs/Mods.md), [C API](include/blockthespot_mod.h), and
+[signature guide](docs/UpdateSignature-advanced.md). With the bundled Developer
+patch enabled, Spotify's **Develop > Show debug window** opens its developer UI.
 
 ## Support
 
-- Discord: https://discord.gg/eYudMwgYtY
+[Discord](https://discord.gg/eYudMwgYtY). Unsigned DLLs can trigger antivirus
+false positives; source is available if you prefer to build your own binaries.

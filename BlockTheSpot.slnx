@@ -5,4 +5,5 @@
   </Configurations>
   <Project Path="Hook/Hook.vcxproj" Id="79c58228-78ba-43d6-a5b0-6d54971c4edb" />
   <Project Path="Loader/Loader.vcxproj" Id="6243e6c0-6863-4152-b9d8-15e4cae9e832" />
+  <Project Path="Mods/BlockTheSpot/BlockTheSpot.vcxproj" Id="d543d39e-7950-4cc9-89ed-b46fac48b214" />
 </Solution>

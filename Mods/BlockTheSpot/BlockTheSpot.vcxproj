@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{D543D39E-7950-4CC9-89ED-B46FAC48B214}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <TargetName>blockthespot</TargetName>
+    <IntDir>$(SolutionDir)temp\BlockTheSpotMod\$(Platform)\$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)out\$(Platform)\$(Configuration)\patches\</OutDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreaded</RuntimeLibrary>
+      <Optimization Condition="'$(Configuration)'=='Release'">MaxSpeed</Optimization>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link><GenerateDebugInformation>true</GenerateDebugInformation></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="blockthespot.cpp" />
+    <ClInclude Include="..\..\include\blockthespot_mod.h" />
+    <ClInclude Include="..\..\Common\windows.h" />
+    <None Include="..\..\patches\blockthespot.ini" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="CopyModConfig" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)..\..\patches\blockthespot.ini" DestinationFolder="$(OutDir)" />
+  </Target>
+</Project>

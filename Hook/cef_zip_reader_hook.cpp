@@ -33,22 +33,8 @@ int CALLBACK read_file(void* self, void* buffer, size_t capacity) {
     }
     free_string(raw);
     if (name.empty()) return count;
-    const bts::FilePatch* target = nullptr;
-    if (runtime_config.buffers_enabled) {
-        for (const auto& file : runtime_config.files) if (file.file == name) { target = &file; break; }
-    }
-    bool css = runtime_config.css_enabled && std::string_view(name).ends_with(".css");
-    std::vector<bts::PatchGroup> groups;
-    if (target) groups.push_back({name, target->patches});
     const auto bytes = std::span(static_cast<uint8_t*>(buffer), static_cast<size_t>(count));
-    if (css) {
-        std::vector<bts::Write> writes;
-        std::string error;
-        if (bts::plan(bytes, {&runtime_config.css, 1}, writes, error) && writes[0].offset == runtime_config.css.offset)
-            groups.push_back({"Homepage_vbar", {runtime_config.css}});
-    }
-    auto mods = frontend_mod_groups(name);
-    groups.insert(groups.end(), std::make_move_iterator(mods.begin()), std::make_move_iterator(mods.end()));
+    auto groups = frontend_mod_groups(name, bytes);
     if (groups.empty()) return count;
     // Full-file transactions cannot safely be applied after earlier chunks
     // have already been returned to CEF. Leave split reads untouched.
@@ -88,12 +74,7 @@ void* cef_zip_reader_create_stub(void* stream) {
 }
 
 void hook_cef_reader(HMODULE libcef) noexcept {
-    enabled = compatible_spotify && (runtime_config.buffers_enabled || runtime_config.css_enabled || has_frontend_mods());
-    for (const auto& target : runtime_config.files)
-        set_status(target.file, enabled && runtime_config.buffers_enabled ? "pending" : "skipped",
-            !compatible_spotify ? "unsupported Spotify version" : runtime_config.buffers_enabled ? "not loaded yet" : "disabled");
-    set_status("Homepage_vbar", enabled && runtime_config.css_enabled ? "pending" : "skipped",
-        runtime_config.css_enabled ? "waiting for matching CSS" : "disabled");
+    enabled = compatible_spotify && has_frontend_mods();
     if (!enabled) { report_frontend_mods(false); return; }
     original_create = reinterpret_cast<create_t>(GetProcAddress(libcef, "cef_zip_reader_create"));
     free_string = reinterpret_cast<free_cef_string_t>(GetProcAddress(libcef, "cef_string_userfree_utf16_free"));

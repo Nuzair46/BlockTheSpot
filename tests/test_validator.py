@@ -40,6 +40,8 @@ class ValidatorTests(unittest.TestCase):
         self.config = self.folder/'config.ini'
         self.config.write_text(f'''[Compatibility]
 Spotify=1.0.0.0
+[NativePatches]
+1=Developer
 [Developer]
 Signature=AA BB
 Value=FF
@@ -54,7 +56,11 @@ Offset=0
 Signature_1={hex_bytes(self.js)}
 Value_1=30
 Offset_1={self.js.index('1')}
+[Stylesheets]
+1=Homepage_vbar
 [Homepage_vbar]
+Enable=0
+Extension=.css
 Signature={hex_bytes(self.css)}
 Value=6e 6f 6e 65
 Offset=11
@@ -87,7 +93,7 @@ Offset=11
         self.config.write_text(self.config.read_text().replace('Signature_1='+hex_bytes(self.js), 'Signature_1=61'))
         source, output = self.folder/'input', self.folder/'output'
         source.write_bytes(b'aaa')
-        result = subprocess.run([str(ENGINE), 'apply', str(self.config), 'test.js', str(source), str(output)], capture_output=True, text=True)
+        result = subprocess.run([str(ENGINE), 'apply-mod', str(self.config), 'test.js', str(source), str(output)], capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('ambiguous', result.stderr)
         self.assertFalse(output.exists())

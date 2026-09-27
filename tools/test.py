@@ -20,3 +20,4 @@ for source, name in [('tests/core.cpp', 'core-tests'), ('tests/mods.cpp', 'mod-t
 subprocess.run([str(out/'core-tests')], check=True)
 subprocess.run([str(out/'mod-tests')], check=True)
 subprocess.run([str(out/'patch-tool'), 'inspect', str(root/'config.ini')], check=True)
+subprocess.run([str(out/'patch-tool'), 'inspect-mod', str(root/'patches'/'blockthespot.ini'), '--all'], check=True)

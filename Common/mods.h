@@ -4,11 +4,15 @@
 
 namespace bts {
 
+struct StylesheetPatch { std::string extension; Patch patch; };
+
 struct IniMod {
     std::string spotify_version;
     bool enabled = true;
     std::vector<FilePatch> native;
     std::vector<FilePatch> files;
+    std::vector<std::string> urls;
+    std::vector<StylesheetPatch> stylesheets;
 };
 
 inline bool ini_flag(const Ini& ini, const std::string& section, bool& flag, std::string& error) {
@@ -92,8 +96,42 @@ inline bool load_ini_mod(const Ini& ini, IniMod& mod, std::string& error) {
             }
         }
     }
-    if (!ini.sections.contains("nativepatches") && !ini.sections.contains("buffer_modify")) {
-        error = "INI mod needs NativePatches or Buffer_modify; DLL settings need a same-named DLL"; return false;
+    bool urls_enabled = true;
+    if (!ini_flag(ini, "URL_block", urls_enabled, error)) return false;
+    if (ini.sections.contains("url_block") && urls_enabled) {
+        if (!numbered(ini, "URL_block", 256, mod.urls, error)) return false;
+        for (const auto& url : mod.urls) {
+            if (url.front() != '/' || url.find_first_of("?#") != std::string::npos ||
+                std::any_of(url.begin(), url.end(), [](unsigned char c) { return c < 32 || c > 126; })) {
+                error = "URL rules must be ASCII path substrings without queries"; return false;
+            }
+        }
+    }
+    bool styles_enabled = true;
+    if (!ini_flag(ini, "Stylesheets", styles_enabled, error)) return false;
+    if (ini.sections.contains("stylesheets") && styles_enabled) {
+        if (!numbered(ini, "Stylesheets", 256, names, error)) return false;
+        std::set<std::string> seen;
+        for (const auto& name : names) {
+            if (!seen.insert(lower(name)).second) { error = "duplicate stylesheet patch " + name; return false; }
+            bool enabled = true;
+            if (!ini_flag(ini, name, enabled, error)) return false;
+            if (!enabled) continue;
+            const auto* extension = ini.get(name, "Extension");
+            if (!extension || *extension != ".css") { error = name + ": Extension must be .css"; return false; }
+            Patch patch;
+            if (!read_patch(ini, name, "", patch, error)) return false;
+            for (const auto& [key, unused] : ini.sections.at(lower(name))) {
+                if (key != "enable" && key != "extension" && key != "signature" && key != "offset" && key != "value") {
+                    error = name + ": unknown stylesheet patch field " + key; return false;
+                }
+            }
+            mod.stylesheets.push_back({*extension, std::move(patch)});
+        }
+    }
+    if (!ini.sections.contains("nativepatches") && !ini.sections.contains("buffer_modify") &&
+        !ini.sections.contains("url_block") && !ini.sections.contains("stylesheets")) {
+        error = "INI mod needs NativePatches, Buffer_modify, URL_block, or Stylesheets; DLL settings need a same-named DLL"; return false;
     }
     return true;
 }

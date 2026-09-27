@@ -11,18 +11,11 @@
 
 namespace {
 bool load_configuration(std::string& error) {
-    bts::Ini pack, settings;
+    bts::Ini pack;
     std::string text;
     if (!bts::read_text(install_directory + L"\\config.ini", text)) { error = "cannot read config.ini next to the patch DLL"; return false; }
     if (!bts::parse_ini(text, pack, error)) return false;
-    auto settings_path = install_directory + L"\\settings.ini";
-    if (GetFileAttributesW(settings_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        if (!bts::read_text(settings_path, text) || !bts::parse_ini(text, settings, error)) {
-            if (error.empty()) error = "cannot read settings.ini";
-            return false;
-        }
-    }
-    return bts::load_config(pack, settings, runtime_config, error);
+    return bts::load_config(pack, runtime_config, error);
 }
 }
 
@@ -60,7 +53,7 @@ VOID CALLBACK bts_main(ULONG_PTR) {
     set_status("Spotify", "detected", version);
     compatible_spotify = version == runtime_config.spotify_version;
     set_status("Compatibility", compatible_spotify ? "supported" : "failed",
-        "signature pack targets " + runtime_config.spotify_version);
+        "host configuration targets " + runtime_config.spotify_version);
     auto original_version = bts::file_version(original_chrome_elf);
     auto cef_version = bts::cef_chromium_version(install_directory + L"\\libcef.dll");
     if (original_version == "unknown" || original_version != cef_version) {
@@ -74,11 +67,11 @@ VOID CALLBACK bts_main(ULONG_PTR) {
     HMODULE libcef = LoadLibraryExW(cef_path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!spotify || !libcef) { set_status("Initialization", "failed", "Spotify.dll or libcef.dll could not be loaded"); return; }
     discover_mods(version);
+    load_dll_mods();
     apply_native_mods(spotify);
     hook_cef_url(libcef);
     hook_cef_reader(libcef);
     if (!libcef_IAT_hook_GetProcAddress(spotify)) { set_status("CEF hooks", "failed", "GetProcAddress import is not writable"); return; }
     set_status("CEF hooks", "ready");
-    load_dll_mods();
     set_status("Initialization", "complete");
 }

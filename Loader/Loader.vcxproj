@@ -169,6 +169,10 @@
     <None Include="chrome_elf.def" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Mods\BlockTheSpot\BlockTheSpot.vcxproj">
+      <Project>{D543D39E-7950-4CC9-89ED-B46FAC48B214}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
     <ProjectReference Include="..\Hook\Hook.vcxproj">
       <Project>{79c58228-78ba-43d6-a5b0-6d54971c4edb}</Project>
       <LinkLibraryDependencies>true</LinkLibraryDependencies>

@@ -54,9 +54,26 @@ int main() {
     for (const auto* bad : {"../x.dll", "foo/bar.ini", "C:bad.dll", ".ini", "bad\n.dll", "bad.txt"}) CHECK(!bts::mod_filename(bad));
     CHECK(bts::mod_filename("My-Mod.DLL"));
 
+    CHECK(bts::parse_ini("[Compatibility]\nSpotify=1.3.1.234\n[URL_block]\n1=/ads/\n"
+        "[Stylesheets]\n1=cosmetic\n[cosmetic]\nExtension=.css\nSignature=AA BB\nOffset=0\nValue=CC\n", ini, error));
+    CHECK(bts::load_ini_mod(ini, mod, error) && mod.urls.size() == 1 && mod.stylesheets.size() == 1);
+    for (const auto* invalid : {"ads", "/ads/?token", "/ads/#part", "/ads/\t"}) {
+        ini.sections["url_block"]["1"] = invalid;
+        CHECK(!bts::load_ini_mod(ini, mod, error));
+    }
+    ini.sections["url_block"]["1"] = "/ads/";
+    ini.sections["cosmetic"]["extension"] = ".js";
+    CHECK(!bts::load_ini_mod(ini, mod, error));
+    ini.sections["cosmetic"]["extension"] = ".css";
+    ini.sections["cosmetic"]["enable"] = "0";
+    ini.sections["url_block"]["enable"] = "0";
+    CHECK(bts::load_ini_mod(ini, mod, error) && mod.urls.empty() && mod.stylesheets.empty());
+    ini.sections["stylesheets"]["enable"] = "2";
+    CHECK(!bts::load_ini_mod(ini, mod, error));
+
     const std::array<uint8_t, 5> original{0xAA, 0xBB, 0xCC, 0xDD, 0xEE};
     std::vector<bts::PatchGroup> groups{
-        {"builtin", {patch("AA BB", 0, "11")}},
+        {"first-mod", {patch("AA BB", 0, "11")}},
         {"overlaps", {patch("AA BB", 0, "22"), patch("DD EE", 0, "33")}},
         {"missing", {patch("BB CC", 0, "44"), patch("FA FB", 0, "55")}},
         {"valid", {patch("AA BB", 1, "66"), patch("DD EE", 0, "77")}}

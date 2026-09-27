@@ -63,42 +63,21 @@ int main() {
     CHECK(!bts::numbered(ini, "list", 256, entries, error));
     CHECK(bts::parse_ini("[list]\n-1=a", ini, error));
     CHECK(!bts::numbered(ini, "list", 256, entries, error));
-    bts::Ini pack, settings;
-    CHECK(bts::parse_ini("[Compatibility]\nSpotify=1.2.3.4\n"
-        "[Developer]\nSignature=AA\nValue=FF\nOffset=0\n"
-        "[Homepage_vbar]\nSignature=AA\nValue=FF\nOffset=0\n"
-        "[URL_block]\n1=/ads/\n[Buffer_modify]\n1=test.js\n"
-        "[test.js]\n1=change\n[change]\nSignature_1=AA\nValue_1=FF\nOffset_1=0", pack, error));
+    bts::Ini pack;
+    CHECK(bts::parse_ini("[Compatibility]\nSpotify=1.2.3.4\n", pack, error));
     bts::Config config;
-    CHECK(bts::load_config(pack, settings, config, error));
-    CHECK(config.developer_enabled && config.urls.size() == 1 && config.files.size() == 1);
-    CHECK(bts::parse_ini("[Developer]\nEnable=0\n[Log]\nLevel=2", settings, error));
-    CHECK(bts::load_config(pack, settings, config, error));
-    CHECK(!config.developer_enabled && config.log_level == 2);
-    settings.sections["mods"]["enable"] = "0";
-    settings.sections["mods"]["sample.dll"] = "0";
-    CHECK(bts::load_config(pack, settings, config, error));
-    CHECK(!config.mods_enabled && !config.mod_overrides.at("sample.dll"));
-    settings.sections["mods"]["sample.dll"] = "2";
-    CHECK(!bts::load_config(pack, settings, config, error));
-    settings.sections["mods"]["sample.dll"] = "0";
-    settings.sections["mods"]["../bad.dll"] = "0";
-    CHECK(!bts::load_config(pack, settings, config, error));
-    settings.sections.erase("mods");
-    settings.sections["developer"]["enable"] = "2";
-    CHECK(!bts::load_config(pack, settings, config, error));
-    settings = {};
-    settings.sections["developer"]["offset"] = "1";
-    CHECK(!bts::load_config(pack, settings, config, error));
-    settings = {};
-    pack.sections["change"]["value_2"] = "FF";
-    CHECK(!bts::load_config(pack, settings, config, error));
-    pack.sections["change"].erase("value_2");
-    pack.sections["change"]["signature_3"] = "AA";
-    CHECK(!bts::load_config(pack, settings, config, error));
-    pack.sections["change"].erase("signature_3");
+    CHECK(bts::load_config(pack, config, error) && config.mods_enabled);
+    pack.sections["developer"]["enable"] = "0";
+    CHECK(!bts::load_config(pack, config, error));
+    pack.sections.erase("developer");
+    pack.sections["log"]["level"] = "2";
+    pack.sections["mods"]["enable"] = "0";
+    CHECK(bts::load_config(pack, config, error) && !config.mods_enabled && config.log_level == 2);
+    pack.sections["mods"]["enable"] = "2";
+    CHECK(!bts::load_config(pack, config, error));
+    pack.sections.erase("mods");
     pack.sections["libcef"]["cef_request_get_url_offset"] = "49";
-    CHECK(!bts::load_config(pack, settings, config, error));
+    CHECK(!bts::load_config(pack, config, error));
     CHECK(bts::url_path(L"https://example.com/ads/a?secret=yes#x") == L"/ads/a");
     CHECK(bts::url_path(L"https://example.com?next=/ads/a").empty());
     CHECK(bts::url_path(L"https://example.com/music?next=/ads/a") == L"/music");
