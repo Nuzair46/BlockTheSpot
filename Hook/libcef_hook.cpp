@@ -6,15 +6,15 @@
 
 static FARPROC WINAPI GetProcAddress_hook(HMODULE hModule, LPCSTR lpProcName)
 {
-	if (!lpProcName || 0 == HIWORD(lpProcName))
+	if (!lpProcName || reinterpret_cast<uintptr_t>(lpProcName) <= 0xffff)
 		return GetProcAddress_orig(hModule, lpProcName);
 
-	if (0 == lstrcmpiA(lpProcName, "cef_urlrequest_create")) {
+	if (cef_url_ready() && 0 == lstrcmpiA(lpProcName, "cef_urlrequest_create")) {
 		if (hModule == GetModuleHandleW(L"libcef.dll")) {
 			return reinterpret_cast<FARPROC>(cef_urlrequest_create_stub);
 		}
 	}
-	if (0 == lstrcmpiA(lpProcName, "cef_zip_reader_create")) {
+	if (cef_reader_ready() && 0 == lstrcmpiA(lpProcName, "cef_zip_reader_create")) {
 		if (hModule == GetModuleHandleW(L"libcef.dll")) {
 			return reinterpret_cast<FARPROC>(cef_zip_reader_create_stub);
 		}

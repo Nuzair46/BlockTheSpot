@@ -37,7 +37,15 @@ jobs:
           Write-Error "This workflow can only be run from the master branch."
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
 
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -45,14 +53,17 @@ jobs:
       - name: Resolve release metadata
         id: meta
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name }}
+          RELEASE_NAME: ${{ inputs.release_name }}
         run: |
           $spotifyVersion = (Get-Content config.ini | Select-Object -First 2 | Select-Object -Last 1).TrimStart(";").Trim()
-          $tag = "${{ inputs.tag_name }}"
+          $tag = $env:RELEASE_TAG
           if ([string]::IsNullOrWhiteSpace($tag)) {
             $tag = "v$spotifyVersion-build.${{ github.run_number }}"
           }
 
-          $releaseName = "${{ inputs.release_name }}"
+          $releaseName = $env:RELEASE_NAME
           if ([string]::IsNullOrWhiteSpace($releaseName)) {
             $releaseName = "BlockTheSpot $spotifyVersion"
           }
@@ -72,21 +83,26 @@ jobs:
           $releaseBody | Set-Content -Path $bodyPath -NoNewline
           "body_path=$bodyPath" >> $env:GITHUB_OUTPUT
 
-      - name: Build Release hook DLL
+      - name: Build and test both Release DLLs
         shell: pwsh
-        run: msbuild Hook/Hook.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$env:GITHUB_WORKSPACE\\"
+        run: ./tools/build.ps1
 
-      - name: Build Debug loader DLL
-        shell: pwsh
-        run: msbuild Loader/Loader.vcxproj /m /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir="$env:GITHUB_WORKSPACE\\"
+      - name: Validate synthetic assets
+        run: python -m unittest discover -s tests -p 'test_*.py'
 
       - name: Collect release assets
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item out/x64/Release/blockthespot.dll dist/blockthespot.dll -Force
-          Copy-Item out/x64/Debug/chrome_elf.dll dist/chrome_elf.dll -Force
+          Copy-Item out/x64/Release/chrome_elf.dll dist/chrome_elf.dll -Force
           Copy-Item config.ini dist/config.ini -Force
+          Copy-Item settings.example.ini dist/settings.example.ini -Force
+          Copy-Item out/tools/patch-tool.exe dist/patch-tool.exe -Force
+          Compress-Archive out/x64/Release/*.pdb dist/symbols.zip -Force
+          Get-ChildItem dist -File | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content dist/SHA256SUMS.txt -Encoding ASCII
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -100,3 +116,7 @@ jobs:
             dist/blockthespot.dll
             dist/chrome_elf.dll
             dist/config.ini
+            dist/settings.example.ini
+            dist/patch-tool.exe
+            dist/symbols.zip
+            dist/SHA256SUMS.txt

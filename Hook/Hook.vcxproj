@@ -126,8 +126,8 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <ExceptionHandling>false</ExceptionHandling>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <ControlFlowGuard>false</ControlFlowGuard>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <GuardEHContMetadata>false</GuardEHContMetadata>
@@ -139,7 +139,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <DataExecutionPrevention>false</DataExecutionPrevention>
+      <DataExecutionPrevention>true</DataExecutionPrevention>
       <LinkErrorReporting>NoErrorReport</LinkErrorReporting>
       <CETCompat>false</CETCompat>
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
@@ -157,8 +157,8 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <ExceptionHandling>false</ExceptionHandling>
-      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
       <ControlFlowGuard>false</ControlFlowGuard>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <GuardEHContMetadata>false</GuardEHContMetadata>
@@ -170,7 +170,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <DataExecutionPrevention>false</DataExecutionPrevention>
+      <DataExecutionPrevention>true</DataExecutionPrevention>
       <LinkErrorReporting>NoErrorReport</LinkErrorReporting>
       <CETCompat>false</CETCompat>
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
@@ -181,10 +181,13 @@
     <ClInclude Include="cef_zip_reader_hook.h" />
     <ClInclude Include="css_cosmetic.h" />
     <ClInclude Include="developer_mode.h" />
+    <ClInclude Include="..\Common\patch.h" />
+    <ClInclude Include="..\Common\config.h" />
+    <ClInclude Include="..\Common\url.h" />
+    <ClInclude Include="..\Common\windows.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="funct_pointer.h" />
     <ClInclude Include="IAT_hook.h" />
-    <ClInclude Include="kill_crashpad.h" />
     <ClInclude Include="libcef_hook.h" />
     <ClInclude Include="loader.h" />
     <ClInclude Include="log_thread.h" />
@@ -200,7 +203,6 @@
     <ClCompile Include="developer_mode.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="IAT_hook.cpp" />
-    <ClCompile Include="kill_crashpad.cpp" />
     <ClCompile Include="libcef_hook.cpp" />
     <ClCompile Include="loader.cpp" />
     <ClCompile Include="log_thread.cpp" />

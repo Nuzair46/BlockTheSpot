@@ -1,19 +1,9 @@
 #pragma once
 #include "loader.h"
+#include <string_view>
 
-void init_log_thread() noexcept;
-
-enum class Log_level : uint8_t {
-	NONE = 0,
-	INFORMATION,
-	DEBUG
-};
-
-void log_any_noop(const char* message) noexcept;
-
-using log_debug_t = void (*)(const char*) noexcept;
-inline log_debug_t log_debug = log_any_noop;
-
-using log_info_t = void (*)(const char*) noexcept;
-inline log_info_t log_info = log_any_noop;
-void stop_log() noexcept;
+void init_log(int level) noexcept;
+void log_debug(const char* message) noexcept;
+void log_info(const char* message) noexcept;
+void log_error(const char* message) noexcept;
+void set_status(std::string_view feature, std::string_view state, std::string_view detail = {});
